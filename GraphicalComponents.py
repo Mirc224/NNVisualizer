@@ -2,169 +2,363 @@ import math
 import tkinter as tk
 from tkinter import ttk
 
-class ScrollableWindow(tk.Frame):
-    def __init__(self, parent, orientation):
-        tk.Frame.__init__(self, parent, bg='#ffffff')
-        self.Orientation = orientation
-        self.WindowItems = {}
+class ScrollableWindow(tk.LabelFrame):
+    def __init__(self, parent, orientation, *args, **kwargs):
+        tk.LabelFrame.__init__(self, parent, *args, **kwargs)
+        self.__orientation = orientation
 
-        canvas = tk.Canvas(self, borderwidth=0, background="#ffffff")
-        self.WindowItems['Canvas'] = canvas
+        self.__canvas = tk.Canvas(self, borderwidth=0, background="#ffffff", border=0, highlightthickness=0)
 
         vsb = None
         if orientation == 'horizontal':
-            vsb = tk.Scrollbar(self, orient="horizontal", command=canvas.xview, background='#ffffff')
-            vsb.pack(side='bottom', fill='x')
+            self.__scrollbar = ttk.Scrollbar(self, orient="horizontal", command=self.__canvas.xview)
+            self.__scrollbar.pack(side='bottom', fill='x')
         elif orientation == 'vertical':
-            vsb = tk.Scrollbar(self, orient="vertical", command=canvas.yview)
-            vsb.pack(side='right', fill='y')
+            self.__scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.__canvas.yview)
+            self.__scrollbar.pack(side='right', fill='y')
         else:
             raise Exception("Scrollable window: unknown orientation '{}'".format(orientation))
 
-        self.WindowItems['Scrollbar'] = vsb
-        frame = tk.LabelFrame(canvas, background="#ffffff")
-        self.WindowItems['Frame'] = frame
-        canvas.pack(fill='both', expand=True)
+        self.__inner_frame = tk.LabelFrame(self.__canvas, background="#ffffff", highlightthickness=0, border=0)
+        self.__canvas.pack(fill='both', expand=True)
 
-        self.CanvasFrameId = canvas.create_window((0, 0), window=frame, anchor="nw",
+        self.__canvasFrameId = self.__canvas.create_window((0, 0), window=self.Frame, anchor="nw",
                                    tags="self.frame")
-        frame.bind("<Configure>", self.onFrameConfigure)
-        canvas.bind("<Configure>", self.canvasChange)
+        self.__inner_frame.bind("<Configure>", self.on_frame_configure)
+        self.__canvas.bind("<Configure>", self.canvas_change)
 
-    def onFrameConfigure(self, event):
+    def on_frame_configure(self, event):
         '''Reset the scroll region to encompass the inner frame'''
-        if self.Orientation == 'horizontal':
-            self.WindowItems['Canvas'].configure(scrollregion=self.WindowItems['Canvas'].bbox("all"), xscrollcommand=self.WindowItems['Scrollbar'].set)
+        if self.__orientation == 'horizontal':
+            self.__canvas.configure(scrollregion=self.__canvas.bbox("all"), xscrollcommand=self.__scrollbar.set)
         else:
-            self.WindowItems['Canvas'].configure(scrollregion=self.WindowItems['Canvas'].bbox("all"),
-                                                 yscrollcommand=self.WindowItems['Scrollbar'].set)
+            self.__canvas.configure(scrollregion=self.__canvas.bbox("all"),
+                                                 yscrollcommand=self.__scrollbar.set)
 
-    def canvasChange(self, event):
-        if self.Orientation == 'horizontal':
-            self.WindowItems['Canvas'].itemconfig(self.CanvasFrameId, height=event.height)
+    def canvas_change(self, event):
+        if self.__orientation == 'horizontal':
+            self.__canvas.itemconfig(self.__canvasFrameId, height=event.height)
         else:
-            self.WindowItems['Canvas'].itemconfig(self.CanvasFrameId, width=event.width)
+            self.__canvas.itemconfig(self.__canvasFrameId, width=event.width)
+
+    def clear(self):
+        self.__inner_frame.destroy()
+        self.__scrollbar.destroy()
+        self.__canvas.destroy()
+        self.destroy()
+        self.__orientation = None
+        self.__inner_frame = None
+        self.__scrollbar = None
+        self.__canvas = None
 
     def __del__(self):
         print('Mazanie scrollable')
 
+    @property
+    def Frame(self):
+        return self.__inner_frame
+
+
+class ComboboxAddRemoveFrame(tk.LabelFrame):
+    def __init__(self, parent, *args, **kwargs):
+        tk.LabelFrame.__init__(self, parent, *args, **kwargs)
+        
+        self.__default_text = ''
+        self.__read_only = False
+        self.__next_special_ID = None
+        
+        self.__all_values = {}
+        self.__already_selected = []
+        self.__ordered_values = []
+        self.__backward_values = {}
+        
+        self.__combo_box = ttk.Combobox(self)
+        self.__add_button = ttk.Button(self, text='Add', command=self.show_selected)
+
+        self.grid_propagate(0)
+        
+        self.rowconfigure(0, weight=1)
+        self.rowconfigure(3, weight=1)
+        self.columnconfigure(0, weight=1)
+        self.columnconfigure(2, weight=1)
+        
+        self.__combo_box.grid(row=1, column=1)
+        self.__add_button.grid(row=2, column=1)
+        self.__command = None
+
+    def initialize(self, item_list, command=None, button_text: str='Add', read_only: bool = True, default_text: str = ''):
+        self.__all_values = {}
+        self.__already_selected = []
+        self.__ordered_values = []
+        self.__backward_values = {}
+        self.__command = command
+        self.__next_special_ID = 1
+
+        self.__add_button.configure(text=button_text)
+        self.__read_only = read_only
+        self.__default_text = default_text
+        if self.__read_only:
+            self.__combo_box.configure(state='readonly')
+        else:
+            self.__combo_box.configure(state='normal')
+        if self.__read_only and self.__default_text != '':
+            self.__ordered_values.append(default_text)
+
+        for i, item_name in enumerate(item_list):
+            item_name = self.get_unique_name(item_name)
+            self.__all_values[item_name] = i
+            self.__ordered_values.append(item_name)
+            self.__backward_values[i] = item_name
+        self.__combo_box.configure(values=self.get_list_of_visible())
+
+        if self.__read_only:
+            if self.__default_text != '':
+                self.__combo_box.current(0)
+        else:
+            self.__combo_box.set(self.__default_text)
+
+        if self.__read_only and self.__default_text != '':
+            return self.__ordered_values[1:]
+        else:
+            return self.__ordered_values
+
+    def get_unique_name(self, item_name):
+        if item_name in self.__all_values:
+            new_name = item_name + ' ({})'
+            number_of_copy = 1
+            while True:
+                if new_name.format(number_of_copy) in self.__all_values:
+                    number_of_copy += 1
+                    continue
+                else:
+                    itemName = new_name.format(number_of_copy)
+                    break
+        return item_name
+
+    def get_list_of_visible(self):
+        return [layer_name for layer_name in self.__ordered_values if layer_name not in self.__already_selected]
+
+    def show_selected(self):
+        selected = self.__combo_box.get()
+        if self.__command and selected in self.__all_values:
+            self.__command((self.__all_values[selected], selected))
+
+    def update_list(self):
+        visible_list = self.get_list_of_visible()
+        self.__combo_box.configure(values=visible_list)
+        if self.__read_only:
+            if self.__default_text != '':
+                self.__combo_box.current(0)
+        else:
+            self.__combo_box.set(self.__default_text)
+
+    def hide_item(self, item_name):
+        if item_name in self.__all_values:
+            self.__already_selected.append(item_name)
+            self.update_list()
+
+    def show_item(self, item_name):
+        if item_name in self.__already_selected:
+            if self.__read_only:
+                if self.__default_text != item_name:
+                    self.__already_selected.remove(item_name)
+                    self.update_list()
+            else:
+                self.__already_selected.remove(item_name)
+                self.update_list()
+
+    def add_special(self, item_name):
+        new_list = []
+        starting_index = 0
+        if self.__read_only and self.__default_text != '':
+            new_list.append(self.__default_text)
+            starting_index += 1
+        item_name = self.get_unique_name(item_name)
+        new_list.append(item_name)
+        new_list.extend(self.__ordered_values[starting_index:])
+        self.__ordered_values = new_list
+        self.__all_values[item_name] = -self.__next_special_ID
+        self.__next_special_ID += 1
+        self.update_list()
+        return item_name
+
+
+    def clear(self):
+        self.__add_button.destroy()
+        self.__combo_box.destroy()
+        self.destroy()
+        self.__already_selected = None
+        self.__backward_values = None
+        self.__add_button = None
+        self.__all_values = None
+        self.__combo_box = None
+        self.__command = None
+
+    def __del__(self):
+        print('mazanie combobox')
 
 class ClickableSlider(tk.LabelFrame):
-    def __init__(self, parent, *args, **kwargs):
+    def __init__(self, parent, slider_id, hide_command, *args, **kwargs):
         if 'text' in kwargs:
-            tk.LabelFrame.__init__(self, parent, text=kwargs.pop('text'), bg='#fafafa')
+            tk.LabelFrame.__init__(self, parent, text=kwargs.pop('text'), bg='#fafafa', height=57)
         else:
             tk.LabelFrame.__init__(self, parent)
         showvalue = kwargs.pop('showvalue', True)
         if showvalue:
             kwargs['showvalue'] = False
-            self.Start = 0
-            self.Ending = 100
+
+            self.__slider_id = slider_id
+            self.__start = 0
+            self.__ending = 100
+
             if 'to' in kwargs:
-                self.Ending = kwargs['to']
+                self.__ending = kwargs['to']
             if 'from_' in kwargs:
-                self.Start = kwargs['from_']
-            self.extent = self.Ending - self.Start
-            self.digits = kwargs.pop('digits', '0')
+                self.__start = kwargs['from_']
+
+            self.__extent = self.__ending - self.__start
+            self.__digits = kwargs.pop('digits', '0')
+
             if 'resolution' in kwargs:
                 resolution = kwargs['resolution']
                 tmp = (resolution % 1)
                 if tmp:
                     tmp = -1 - math.log10(tmp)
-                    if tmp >= self.digits - 1:
-                        kwargs['resolution'] = math.pow(0.1, self.digits - 1)
+                    if tmp >= self.__digits - 1:
+                        kwargs['resolution'] = math.pow(0.1, self.__digits - 1)
 
             if 'command' in kwargs:
                 # add self.display_value to the command
                 fct = kwargs['command']
 
                 def cmd(value):
-                    print(value)
                     self.display_value(value)
                     fct(value)
 
                 kwargs['command'] = cmd
             else:
                 kwargs['command'] = self.display_value
-            self.CallBackFunction = kwargs['command']
-            self.Slider = tk.Scale(self, orient=tk.HORIZONTAL, **kwargs)
-            self.Slider.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True)
+            self.__call_back_function = kwargs['command']
+            self.__slider_wrapper = tk.LabelFrame(self, border=0)
+            self.__slider_wrapper.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True)
+            self.__slider = tk.Scale(self.__slider_wrapper, orient=tk.HORIZONTAL, **kwargs)
+            self.__slider.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
             style = ttk.Style(self)
 
-            style_name = kwargs.get('style', '%s.TScale' % (str(self.Slider.cget('orient')).capitalize()))
-            self.sliderlength = style.lookup(style_name, 'sliderlength', default=20)
+            style_name = kwargs.get('style', '%s.TScale' % (str(self.__slider.cget('orient')).capitalize()))
+            self.__slider_length = style.lookup(style_name, 'sliderlength', default=20)
 
+            start_color = "#dddddd"
+            self.__hide_button = tk.Label(self.__slider_wrapper, text='X', fg='red', background=start_color, relief='raised')
             tk.Label(self, text=' ', bg=self['bg'], height=0, pady=0, padx=0).pack(side=tk.TOP)
-            self.ClickableLabelContainer = tk.Frame(self)
-            self.Entry = tk.Entry(self.ClickableLabelContainer, width=4, background=self['bg'])
-            self.ValueLabel = tk.Label(self.ClickableLabelContainer, text='0', bg=self['bg'])
-            self.ValueLabel.pack(side=tk.TOP)
-            self.ClickableLabelContainer.place(in_=self.Slider, bordermode='outside', x=0, y=0, anchor='s')
-            self.ValueLabel.bind('<Enter>', self.show_label_entry)
-            self.Entry.bind('<Return>', self.validate_entry)
-            self.Entry.bind('<Leave>', self.on_entry_leave)
-            self.Slider.bind('<Configure>', self.on_configure)
+            self.__clickable_label_container = tk.Frame(self)
+            self.__entry = ttk.Entry(self.__clickable_label_container, width=4, background=self['bg'])
+            self.__value_label = ttk.Label(self.__clickable_label_container, text='0', background=self['bg'])
+
+            self.__value_label.bind('<Enter>', self.show_label_entry)
+            self.__entry.bind('<Return>', self.validate_entry)
+            self.__entry.bind('<Leave>', self.on_entry_leave)
+            self.__slider.bind('<Configure>', self.on_configure)
+            self.__hide_button.bind('<Enter>', lambda event: self.__hide_button.configure(background='#cccccc'))
+            self.__hide_button.bind('<Leave>', lambda event: self.__hide_button.configure(background=start_color))
+            self.__hide_button.bind('<Button-1>', lambda event: hide_command(self.__slider_id))
+
+            self.__value_label.pack(side=tk.TOP)
+            self.__clickable_label_container.place(in_=self.__slider, bordermode='outside', x=0, y=0, anchor='s')
+            self.__hide_button.pack(side='left', padx=(0, 4), pady=(0, 2))
+
         else:
             kwargs['showvalue'] = False
-            self.Slider = tk.Scale(self, orient=tk.HORIZONTAL, **kwargs)
-            self.Slider.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True)
+            self.__slider = tk.Scale(self, orient=tk.HORIZONTAL, **kwargs)
+            self.__slider.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    def test(self, event):
+        print(event)
 
     def convert_to_pixels(self, value):
-        return (((value - self.Start) / self.extent) * (
-                    self.Slider.winfo_width() - 2 * self.sliderlength) + self.sliderlength)
+        return (((value - self.__start) / self.__extent) * (
+                self.__slider.winfo_width() - 2 * self.__slider_length) + self.__slider_length)
 
     def display_value(self, value):
         x = self.convert_to_pixels(float(value))
-        self.ClickableLabelContainer.place_configure(x=x)
-        formatter = '{:.' + str(self.digits - 1) + 'f}'
-        self.ValueLabel.configure(text=formatter.format(float(value)))
+        self.__clickable_label_container.place_configure(x=x)
+        formatter = '{:.' + str(self.__digits - 1) + 'f}'
+        self.__value_label.configure(text=formatter.format(float(value)))
 
     def validate_entry(self, event):
         try:
-            if not (self.Start <= float(self.Entry.get()) <= self.Ending):
+            if not (self.__start <= float(self.__entry.get()) <= self.__ending):
                 return False
-            self.Slider.set(float(self.Entry.get()))
+            self.__slider.set(float(self.__entry.get()))
             return True
         except ValueError:
             return False
 
     def on_configure(self, event):
-        self.display_value(self.Slider.get())
+        self.display_value(self.__slider.get())
 
     def show_label_entry(self, event):
-        self.ValueLabel.pack_forget()
-        self.Entry.delete(0, tk.END)
-        self.Entry.insert(0, self.Slider.get())
-        self.Entry.pack()
+        self.__value_label.pack_forget()
+        self.__entry.delete(0, tk.END)
+        self.__entry.insert(0, self.__slider.get())
+        self.__entry.pack()
 
     def on_entry_leave(self, event):
-        self.Entry.pack_forget()
-        self.ValueLabel.pack()
+        self.__entry.pack_forget()
+        self.__value_label.pack()
 
     def get_value(self):
-        return self.Slider.get()
+        return self.__slider.get()
 
     def __del__(self):
         print('Mazanie clickable')
+
+    def clear(self):
+        if self.__clickable_label_container:
+            self.__clickable_label_container.destroy()
+        if self.__hide_button:
+            self.__hide_button.destroy()
+        if self.__entry:
+            self.__entry.destroy()
+        if self.__slider_wrapper:
+            self.__slider_wrapper.destroy()
+        self.__slider.destroy()
+        self.destroy()
+        self.__clickable_label_container = None
+        self.__call_back_function = None
+        self.__slider_wrapper = None
+        self.__slider_length = None
+        self.__hide_button = None
+        self.__slider_id = None
+        self.__ending = None
+        self.__extent = None
+        self.__digits = None
+        self.__slider = None
+        self.__entry = None
+        self.__start = None
 
 
 class ModifiedClickableSlider(ClickableSlider):
     def __init__(self, parent, *args, **kwargs):
         ClickableSlider.__init__(self, parent, *args, **kwargs)
-        self.WeightList = None
-        self.Index = None
+        self.__weight_list = None
+        self.__index = None
 
     def set_variable(self, varList, index):
-        self.WeightList = varList
-        self.Index = index
+        self.__weight_list = varList
+        self.__index = index
 
     def display_value(self, value):
-        if self.WeightList:
-            self.WeightList[self.Index] = float(value)
+        if self.__weight_list:
+            self.__weight_list[self.__index] = float(value)
         super().display_value(value)
 
     def validate_entry(self, event):
         if super().validate_entry(event):
-            if self.WeightList:
-                self.WeightList[self.Index] = float(super().get_value())
+            if self.__weight_list:
+                self.__weight_list[self.__index] = float(super().get_value())
+    def clear(self):
+        self.__weight_list = None
+        self.__index = None
+        super().clear()
