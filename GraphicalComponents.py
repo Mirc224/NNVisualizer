@@ -241,12 +241,12 @@ class ClickableSlider(tk.LabelFrame):
             self.__call_back_function = kwargs['command']
             self.__slider_wrapper = tk.LabelFrame(self, border=0)
             self.__slider_wrapper.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True)
-            self.__slider = tk.Scale(self.__slider_wrapper, orient=tk.HORIZONTAL, **kwargs)
-            self.__slider.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            self._slider = tk.Scale(self.__slider_wrapper, orient=tk.HORIZONTAL, **kwargs)
+            self._slider.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
             style = ttk.Style(self)
 
-            style_name = kwargs.get('style', '%s.TScale' % (str(self.__slider.cget('orient')).capitalize()))
+            style_name = kwargs.get('style', '%s.TScale' % (str(self._slider.cget('orient')).capitalize()))
             self.__slider_length = style.lookup(style_name, 'sliderlength', default=20)
 
             start_color = "#dddddd"
@@ -259,26 +259,26 @@ class ClickableSlider(tk.LabelFrame):
             self.__value_label.bind('<Enter>', self.show_label_entry)
             self.__entry.bind('<Return>', self.validate_entry)
             self.__entry.bind('<Leave>', self.on_entry_leave)
-            self.__slider.bind('<Configure>', self.on_configure)
+            self._slider.bind('<Configure>', self.on_configure)
             self.__hide_button.bind('<Enter>', lambda event: self.__hide_button.configure(background='#cccccc'))
             self.__hide_button.bind('<Leave>', lambda event: self.__hide_button.configure(background=start_color))
             self.__hide_button.bind('<Button-1>', lambda event: hide_command(self.__slider_id))
 
             self.__value_label.pack(side=tk.TOP)
-            self.__clickable_label_container.place(in_=self.__slider, bordermode='outside', x=0, y=0, anchor='s')
+            self.__clickable_label_container.place(in_=self._slider, bordermode='outside', x=0, y=0, anchor='s')
             self.__hide_button.pack(side='left', padx=(0, 4), pady=(0, 2))
 
         else:
             kwargs['showvalue'] = False
-            self.__slider = tk.Scale(self, orient=tk.HORIZONTAL, **kwargs)
-            self.__slider.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            self._slider = tk.Scale(self, orient=tk.HORIZONTAL, **kwargs)
+            self._slider.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
     def test(self, event):
         print(event)
 
     def convert_to_pixels(self, value):
         return (((value - self.__start) / self.__extent) * (
-                self.__slider.winfo_width() - 2 * self.__slider_length) + self.__slider_length)
+                self._slider.winfo_width() - 2 * self.__slider_length) + self.__slider_length)
 
     def display_value(self, value):
         x = self.convert_to_pixels(float(value))
@@ -290,18 +290,18 @@ class ClickableSlider(tk.LabelFrame):
         try:
             if not (self.__start <= float(self.__entry.get()) <= self.__ending):
                 return False
-            self.__slider.set(float(self.__entry.get()))
+            self._slider.set(float(self.__entry.get()))
             return True
         except ValueError:
             return False
 
     def on_configure(self, event):
-        self.display_value(self.__slider.get())
+        self.display_value(self._slider.get())
 
     def show_label_entry(self, event):
         self.__value_label.pack_forget()
         self.__entry.delete(0, tk.END)
-        self.__entry.insert(0, self.__slider.get())
+        self.__entry.insert(0, self._slider.get())
         self.__entry.pack()
 
     def on_entry_leave(self, event):
@@ -309,7 +309,7 @@ class ClickableSlider(tk.LabelFrame):
         self.__value_label.pack()
 
     def get_value(self):
-        return self.__slider.get()
+        return self._slider.get()
 
     def __del__(self):
         print('Mazanie clickable')
@@ -323,7 +323,7 @@ class ClickableSlider(tk.LabelFrame):
             self.__entry.destroy()
         if self.__slider_wrapper:
             self.__slider_wrapper.destroy()
-        self.__slider.destroy()
+        self._slider.destroy()
         self.destroy()
         self.__clickable_label_container = None
         self.__call_back_function = None
@@ -334,7 +334,7 @@ class ClickableSlider(tk.LabelFrame):
         self.__ending = None
         self.__extent = None
         self.__digits = None
-        self.__slider = None
+        self._slider = None
         self.__entry = None
         self.__start = None
 
@@ -348,6 +348,8 @@ class ModifiedClickableSlider(ClickableSlider):
     def set_variable(self, varList, index):
         self.__weight_list = varList
         self.__index = index
+        self._slider.set(varList[index])
+        self.display_value(varList[index])
 
     def display_value(self, value):
         if self.__weight_list:

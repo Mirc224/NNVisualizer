@@ -139,6 +139,8 @@ class GraphLogicLayer:
         self.__weights = []
         self.__bias = []
 
+        self.__neural_layers = []
+
         self.__polygon = None
         self.__polygon_cords = None
         self.__polygon_edges = None
@@ -147,7 +149,7 @@ class GraphLogicLayer:
         self.__main_graph_frame.pack(side='bottom', fill='both', expand=True)
         struct = []
         for i in range(5):
-            struct.append([5])
+            struct.append([3])
 
 
         #struct.append([2])
@@ -174,6 +176,9 @@ class GraphLogicLayer:
         # bodu.
 
         self.__layer_points_values = [[[] for y in range(layer[0])] for layer in NNStructure]
+
+        self.__neural_layers = []
+
 
         if NNStructure[0][0] < 4:
             if NNStructure[0][0] == 3:
@@ -219,20 +224,32 @@ class GraphLogicLayer:
                     self.__points[i].append(j)
                 else:
                     self.__points[i].append(j - 2)
-        # Prepočítanie súradníc podľa zodpovedajúcich dát
-        self.recalculate_cords()
-        self.__main_graph_frame.initialize(NNStructure, self.__layer_points_values, self.__weights, self.__bias, self.__shared_line_cords_tuples)
 
-    def recalculate_cords(self):
+        self.recalculate_cords()
+
+        for layer_number in range(len(NNStructure)):
+            layer = NeuralLayer(self.__main_graph_frame, self)
+            if layer_number < self.__number_of_layers - 1:
+                layer.initialize(layer_number, self.__layer_points_values[layer_number], self.__weights[layer_number], self.__bias[layer_number], None, self.__shared_line_cords_tuples[layer_number])
+            else:
+                layer.initialize(layer_number, self.__layer_points_values[layer_number], None,
+                                 None, None, self.__shared_line_cords_tuples[layer_number])
+            self.__neural_layers.append(layer)
+
+        # Prepočítanie súradníc podľa zodpovedajúcich dát
+        self.broadcast_changes()
+        self.__main_graph_frame.initialize(NNStructure, self.__neural_layers)
+
+    def recalculate_cords(self, starting_layer=0):
         '''
         Popis
         --------
         Prepočíta súradnice bodov na jednotlivých vrstvách na základe nastavených váh.
         '''
-        for layer_number, layer_points in enumerate(self.__layer_points_values):
+        for layer_number in range(starting_layer, self.__number_of_layers):
             if layer_number < self.__number_of_layers - 1:
 
-                self.__layer_points_values[layer_number + 1][:] = self.apply_weights_and_biases(layer_points,
+                self.__layer_points_values[layer_number + 1][:] = self.apply_weights_and_biases(self.__layer_points_values[layer_number],
                                                                                                 layer_number).transpose().tolist()
 
                 # Ak existuje polygon
@@ -241,7 +258,6 @@ class GraphLogicLayer:
                     self.asign_shared_cord_tuples(layer_number + 1)
             else:
                 break
-        self.__main_graph_frame.apply_changes()
 
     def apply_weights_and_biases(self, cords, layer_number):
         # Transponované súradnice bodov, aby ich bolo možné násobiť pomocou maticového násobenia.
@@ -258,7 +274,6 @@ class GraphLogicLayer:
             result[i, :] = tmp[i, :] + vec
         result = np.maximum(result, 0)
         return result
-
 
     def add_point(self, *args):
         self.__number_of___points += 1
@@ -277,6 +292,8 @@ class GraphLogicLayer:
             tmp.append((tmpArr[edge[0]], tmpArr[edge[1]]))
         self.__shared_line_cords_tuples[layer_number][:] = tmp
 
+    def broadcast_changes(self, start_layer=0):
+        self.__main_graph_frame.apply_changes(start_layer)
 
 class MainGraphFrame(tk.LabelFrame):
     '''
@@ -335,9 +352,11 @@ class MainGraphFrame(tk.LabelFrame):
         self.__number_of_layers = 0
 
         self.__NNStructure = []
-        self.__layers_points = []
-        self.__layers_weights = []
-        self.__layers_biases = []
+        # self.__layers_points = []
+        # self.__layers_weights = []
+        # self.__layers_biases = []
+
+        self.__neural_layers = None
 
         self.__name_to_order_dict = {}
         self.__order_to_name_dict = {}
@@ -346,6 +365,8 @@ class MainGraphFrame(tk.LabelFrame):
         self.__active_layers_dict = {}
 
         self.__shared_line_cords_tuples = None
+
+        self.CalculationRunning = False
 
         self.__input_panned = tk.PanedWindow(self)
         self.__input_panned.pack(fill='both', expand=True)
@@ -364,7 +385,7 @@ class MainGraphFrame(tk.LabelFrame):
         self.__add_graph_list_frame = ComboboxAddRemoveFrame(self.__scroll_frame.Frame, width=412, relief='sunken')
         self.__add_graph_list_frame.pack(side='right', fill='y')
 
-    def initialize(self, NNStructure: list, layer_points_ref: list, weights_ref: list, bias_ref: list, shared_polygon_cords):
+    def initialize(self, NNStructure: list, neural_layers: list):
         '''
         Popis
         --------
@@ -415,13 +436,9 @@ class MainGraphFrame(tk.LabelFrame):
         self.__active_layers_dict = {}
 
         self.__NNStructure = NNStructure
-        self.__layers_points = layer_points_ref
-        self.__layers_weights = weights_ref
-        self.__layers_biases = bias_ref
+        self.__neural_layers = neural_layers
         self.__input_frame.initialize(NNStructure[0][0])
         self.__number_of_layers = len(NNStructure)
-
-        self.__shared_line_cords_tuples = shared_polygon_cords
 
         # Vytvorenie predbežného zoznamu názvov vrstiev.
         layer_name_list = []
@@ -433,6 +450,7 @@ class MainGraphFrame(tk.LabelFrame):
         unique_name_list = self.__add_graph_list_frame.initialize(layer_name_list, self.show_layer, 'Add layer', True,
                                                                   'Select layer')
         for i, layerName in enumerate(unique_name_list):
+            self.__neural_layers[i].layer_name = layerName
             self.__order_to_name_dict[i] = layerName
             self.__name_to_order_dict[layerName] = i
 
@@ -450,9 +468,12 @@ class MainGraphFrame(tk.LabelFrame):
         :param starting_layer: int
         - poradie vrstvy, od ktorej je potrebné aplikovať zmeny.
         '''
-        updated_layer = [layer_number for layer_number in self.__active_layers if layer_number >= starting_layer]
-        for layer_number in updated_layer:
-            self.__active_layers_dict[layer_number].apply_changes()
+        if not self.CalculationRunning:
+            self.CalculationRunning = True
+            updated_layer = [layer_number for layer_number in self.__active_layers if layer_number >= starting_layer]
+            for layer_number in updated_layer:
+                self.__active_layers_dict[layer_number].apply_changes()
+            self.CalculationRunning = False
 
     def show_layer(self, layer_tuple: tuple):
         '''
@@ -474,16 +495,10 @@ class MainGraphFrame(tk.LabelFrame):
 
             # Ak nejde o poslednú vrstvu (posledná vrstva má iné inicializačné údaje) je vrstva inicializovaná aj s
             # parametrami referencií na váhy a biasy v danej vrstve
-            if layer_number < self.__number_of_layers - 1:
-                layer_to_show = NeuralLayer(self.__scroll_frame.Frame, self, self.__logic_layer)
+            if layer_number < self.__number_of_layers:
+                layer_to_show = self.__neural_layers[layer_number]
 
-                shared_line_cords = None
-                if self.__shared_line_cords_tuples:
-                    shared_line_cords = self.__shared_line_cords_tuples[layer_number]
-
-                layer_to_show.initialize(layer_number, self.__layers_points[layer_number],
-                                         self.__layers_weights[layer_number], self.__layers_biases[layer_number],
-                                         layer_name, shared_line_cords)
+                layer_to_show.show(self.__scroll_frame.Frame)
             else:
                 layer_to_show = NeuralLayer(self.__scroll_frame.Frame, self, self.__logic_layer)
 
@@ -582,7 +597,7 @@ class InputDataFrame(tk.LabelFrame):
 
 
 class NeuralLayer:
-    def __init__(self, parent, mainGraph: MainGraphFrame, logicLayer: GraphLogicLayer, *args, **kwargs):
+    def __init__(self, mainGraph: MainGraphFrame, logicLayer: GraphLogicLayer, *args, **kwargs):
         '''
         Popis
         --------
@@ -606,21 +621,19 @@ class NeuralLayer:
         :param args:
         :param kwargs:
         '''
-        self.__layer_wrapper = tk.LabelFrame(parent)
+        self.__layer_wrapper = None
 
-        self.__layer_options_container = tk.Frame(self.__layer_wrapper)
-        self.__layer_options_container.pack(side='top', fill='x')
+        self.__layer_options_container = None
 
-        self.__options_button = ttk.Button(self.__layer_options_container, text='Options')
-        self.__options_button.pack(side='left')
-        self.__hide_button = ttk.Button(self.__layer_options_container, command=self.hide_graph_frame, text='Hide')
-        self.__hide_button.pack(side='right')
+        self.__options_button = None
+        self.__hide_button = None
 
-        self.__graph_frame = GraphFrame(self, self.__layer_wrapper, *args, **kwargs)
+        self.__graph_frame = None
+
+        self.__computation_in_process = False
 
         self.__shared_polygon_cords_tuples = None
         self.__displayed_lines_cords = None
-        self.__graph_frame.pack()
         self.__main_graph_frame = mainGraph
         self.__logic_layer = logicLayer
         self.__layer_name = ''
@@ -630,8 +643,14 @@ class NeuralLayer:
         self.__displayed_cords = []
         self.__used_cords = []
 
+        self.__layer_weights = []
+        self.__layer_biases = []
+
+        self.__visible = False
+
     def pack(self, *args, **kwargs):
-        self.__layer_wrapper.pack(*args, **kwargs)
+        if self.__visible:
+            self.__layer_wrapper.pack(*args, **kwargs)
 
     def initialize(self, layer_number: int, layer_point_cords: list, layer_weights: list = None,
                    layer_bias: list = None, layer_name: str = None, shared_polygon_cords = None):
@@ -646,10 +665,13 @@ class NeuralLayer:
         :param layer_name: názov vrstvy, je unikátny pre každú vrstvu, spolu s poradovým číslom sa používa ako ID.
         '''
         # Počet dimenzií, resp. počet súradníc zistíme podľa počtu vnorených listov.
+        self.__computation_in_process = False
         self.__number_of_dimension = len(layer_point_cords)
         self.__layer_number = layer_number
         self.__layer_name = layer_name
         self.__point_cords = []
+        self.__layer_weights = layer_weights
+        self.__layer_biases = layer_bias
 
         self.__point_cords = layer_point_cords
 
@@ -669,12 +691,6 @@ class NeuralLayer:
             self.__displayed_lines_cords[:] = (list(zip(tmp1, tmp2)))
         else:
             self.__displayed_lines_cords = None
-
-
-        self.__graph_frame.initialize(self, number_of_cords, self.__layer_name, self.__displayed_cords, layer_weights, layer_bias, self.__displayed_lines_cords)
-        self.__graph_frame.pack(fill='both', expand=True)
-
-
 
     def apply_changes(self):
         '''
@@ -706,22 +722,65 @@ class NeuralLayer:
         --------
         Používat sa pri mazaní. Vyčistí premenné a skryje danú vrstvu.
         '''
-        self.__graph_frame.clear()
-        self.__layer_options_container.destroy()
-        self.__options_button.destroy()
-        self.__layer_wrapper.destroy()
-        self.__hide_button.destroy()
-        self.__layer_options_container = None
-        self.__options_button = None
-        self.__layer_wrapper = None
-        self.__hide_button = None
+        if self.__visible:
+            self.__graph_frame.clear()
+            self.__layer_options_container.destroy()
+            self.__options_button.destroy()
+            self.__layer_wrapper.destroy()
+            self.__hide_button.destroy()
+            self.__layer_options_container = None
+            self.__options_button = None
+            self.__layer_wrapper = None
+            self.__hide_button = None
+            self.__visible = False
+
+    def hide(self):
+        self.clear()
+
+    def show(self, parent, *args, **kwargs):
+        if self.__visible:
+            self.clear()
+
+        self.__layer_wrapper = tk.LabelFrame(parent)
+
+        self.__layer_options_container = tk.Frame(self.__layer_wrapper)
+        self.__layer_options_container.pack(side='top', fill='x')
+
+        self.__options_button = ttk.Button(self.__layer_options_container, text='Options')
+        self.__options_button.pack(side='left')
+        self.__hide_button = ttk.Button(self.__layer_options_container, command=self.hide_graph_frame, text='Hide')
+        self.__hide_button.pack(side='right')
+
+        self.__graph_frame = GraphFrame(self, self.__layer_wrapper, *args, **kwargs)
+        self.__graph_frame.pack()
+
+        number_of_cords = min(3, self.__number_of_dimension)
+
+        self.__graph_frame.initialize(self, number_of_cords, self.__layer_name, self.__displayed_cords,
+                                      self.__layer_weights, self.__layer_biases, self.__displayed_lines_cords)
+        self.__graph_frame.pack(fill='both', expand=True)
+
+        self.__visible = True
+
+        self.apply_changes()
 
     def signal_change(self):
-        self.__logic_layer.recalculate_cords()
+        if not self.__computation_in_process:
+            self.__computation_in_process = True
+            self.__logic_layer.recalculate_cords(self.__layer_number)
+            self.__logic_layer.broadcast_changes(self.__layer_number + 1)
+            self.__computation_in_process = False
 
     def __del__(self):
         print('neural layer destroyed')
 
+    @property
+    def layer_name(self):
+        return self.__layer_name
+
+    @layer_name.setter
+    def layer_name(self, name):
+        self.__layer_name = name
 
 class GraphFrame(tk.LabelFrame):
     def __init__(self, neural_layer: NeuralLayer, parent, *args, **kwargs):
@@ -780,6 +839,7 @@ class GraphFrame(tk.LabelFrame):
         --------
         Posúva signál o zmene váhy neurónovej vrstve.
         '''
+
         self.__neural_layer.signal_change()
 
 class PlotingFrame:
@@ -839,6 +899,7 @@ class PlotingFrame:
         self.__toolbar.update()
         self.__canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self.__changed = False
+        self.__change_in_progress = False
         self.__ani = animation.FuncAnimation(self.__figure, self.update_changed, interval=100)
 
     def initialize(self, numberOfDim: int, pointCords: list, layerName: str, shared_polygon_layer_cords):
@@ -858,19 +919,26 @@ class PlotingFrame:
             self.set_graph_dimension(2)
 
     def update_changed(self, i):
-        if self.__changed:
-            self.__changed = False
-            self.redraw_graph()
-        else:
-            self.__ani.event_source.stop()
+            if self.__changed:
+                self.__changed = False
+                self.__change_in_progress = True
+                self.redraw_graph()
+                self.__change_in_progress = False
+            else:
+                self.__ani.event_source.stop()
 
     def update_graph(self):
         self.__changed = True
         self.__ani.event_source.start()
 
     def redraw_graph(self):
+        if self.__number_of_dim == 2:
+            tmpX = self.__axis.get_xlim()
+            print(tmpX)
+            tmpY = self.__axis.get_ylim()
         self.__axis.clear()
         self.__axis.grid()
+
 
         if self.__draw_polygon:
             if self.__number_of_dim >= 3:
@@ -899,6 +967,9 @@ class PlotingFrame:
         self.__axis.set_xlabel(self.__graph_labels[0])
         self.__axis.set_ylabel(self.__graph_labels[1])
 
+        if self.__number_of_dim == 2:
+            self.__axis.set_xlim(tmpX)
+            self.__axis.set_ylim(tmpY)
     def set_graph_dimension(self, dimension: int):
         if dimension >= 3:
             self.__draw_2D = False
@@ -966,7 +1037,6 @@ class LayerWeightControllerFrame:
         self.__possible_number_of_sliders = 0
         self.__scrollable_window = ScrollableWindow(self.__plot_wrapper_frame, 'vertical', border=0)
         self.__scrollable_window.pack(side='bottom', fill='both', expand=True)
-        #self.pack_propagate(0)
         self.__add_slider_list = ComboboxAddRemoveFrame(self.__scrollable_window.Frame, height=58)
         self.__add_slider_list.pack(side='bottom', fill='x', expand=True)
 
@@ -1011,9 +1081,9 @@ class LayerWeightControllerFrame:
 
     def create_weight_slider(self, start_neuron: int, end_neuron: int):
         slider_name = 'Vaha {}-{}'.format(start_neuron, end_neuron)
-        slider = ModifiedClickableSlider(self.__scrollable_window.Frame, slider_name, self.test, from_=-1, to=1,
+        slider = ModifiedClickableSlider(self.__scrollable_window.Frame, slider_name, self.remove_slider, from_=-1, to=1,
                                          resolution=0.01, digits=3,
-                                         text=slider_name, command=self.testovaci)
+                                         text=slider_name, command=self.on_slider_change)
         slider.set_variable(self.__weights_reference[start_neuron], end_neuron)
         slider.pack_propagate(0)
         slider.pack(fill='x', expand=True, padx=(0, 2), pady=0)
@@ -1022,22 +1092,21 @@ class LayerWeightControllerFrame:
 
     def create_bias_slider(self, end_neuron: int):
         slider_name = 'Bias {}'.format(end_neuron)
-        slider = ModifiedClickableSlider(self.__scrollable_window.Frame, slider_name, self.test, from_=-10, to=10,
+        slider = ModifiedClickableSlider(self.__scrollable_window.Frame, slider_name, self.remove_slider, from_=-10, to=10,
                                          resolution=0.01, digits=3,
-                                         text=slider_name, command=self.testovaci)
+                                         text=slider_name, command=self.on_slider_change)
         slider.set_variable(self.__bias_reference, end_neuron)
         slider.pack(fill='x', expand=True, padx=(0, 2), pady=0)
         self.__active_slider_dict[slider_name] = slider
         self.addSlider_visibility_test()
 
-    def test(self, slider_id: str):
+    def remove_slider(self, slider_id: str):
         slider = self.__active_slider_dict.pop(slider_id)
-
         slider.clear()
         self.__add_slider_list.show_item(slider_id)
         self.addSlider_visibility_test()
 
-    def testovaci(self, value):
+    def on_slider_change(self, value):
         self.__controller.controller_signal()
 
     def add_slider(self, slider_name: str):
@@ -1093,14 +1162,10 @@ class Testovacia():
 
 
 class Polygon:
-    def __init__(self, lower_list,  upper_list, divide_list = [2, 2, 2]):
+    def __init__(self, lower_list,  upper_list, divide_list=[2, 2, 2]):
         numberOfCords = min(len(lower_list), len(upper_list))
         self.Peaks = [[] for x in range(numberOfCords)]
         self.Edges = []
-        self.EdgesXY = []
-        self.EdgesXZ = []
-        self.EdgesYZ = []
-        self.Edges2D = []
         max_size = []
         cord_sign = []
         for i in range(numberOfCords):
@@ -1133,29 +1198,10 @@ class Polygon:
                         self.Peaks[2].append(lower_list[2] + z * offset_list[2])
                         if x != new_divide[0]:
                             self.Edges.append([pointNumber, pointNumber + 1])
-                            if z == 0:
-                                self.EdgesXY.append([pointNumber, pointNumber + 1])
-                            if y == 0:
-                                self.EdgesXZ.append([pointNumber, pointNumber + 1])
                         if y != new_divide[1]:
                             self.Edges.append([pointNumber, pointNumber + (new_divide[0] + 1)])
-                            if z == 0:
-                                self.EdgesXY.append([pointNumber, pointNumber + (new_divide[0] + 1)])
-                            if x == 0:
-                                self.EdgesYZ.append([pointNumber, pointNumber + (new_divide[0] + 1)])
                         if z != new_divide[2]:
                             self.Edges.append([pointNumber, pointNumber + (new_divide[1] + 1) * (new_divide[0] + 1)])
-                            if y == 0:
-                                self.EdgesXZ.append([pointNumber, pointNumber + (new_divide[1] + 1) * (new_divide[0] + 1)])
-                            if x == 0:
-                                self.EdgesYZ.append([pointNumber, pointNumber + (new_divide[1] + 1) * (new_divide[0] + 1)])
-            for y in range(new_divide[1] + 1):
-                for x in range(new_divide[0] + 1):
-                    pointNumber = y * (new_divide[0] + 1) + x
-                    if x != new_divide[0]:
-                        self.Edges2D.append([pointNumber, pointNumber + 1])
-                    if y != new_divide[1]:
-                        self.Edges2D.append([pointNumber, pointNumber + (new_divide[0] + 1)])
         else:
             for y in range(new_divide[1] + 1):
                 for x in range(new_divide[0] + 1):
@@ -1167,31 +1213,6 @@ class Polygon:
                     if y != new_divide[1]:
                         self.Edges.append([pointNumber, pointNumber + (new_divide[0] + 1)])
 
-# tmp = Polygon([-10, -10, -10], [10, 10, 10], [4,4,4])
-# hrany = np.array(tmp.Edges2D)
-# x = np.array(tmp.Peaks[0])
-# y = np.array(tmp.Peaks[1])
-# #z = np.array(tmp.Peaks[2])
-#
-# fig = plt.figure()
-# # 2D
-# # ax = fig.add_subplot(111)
-# # ax.plot(x[hrany.T], y[hrany.T], linestyle='-', color='y',
-# #        markerfacecolor='red', marker='o')
-#
-# # 3D
-# ax = fig.add_subplot(111, projection='3d')
-# # # ax.scatter(x,y,z)
-# for hrana in hrany:
-#     xs = x[hrana[0]], x[hrana[1]]
-#     ys = y[hrana[0]], y[hrana[1]]
-#     #zs = z[hrana[0]], z[hrana[1]]
-#     line = plt3d.art3d.Line3D(xs, ys, (0, 0,))
-#     ax.add_line(line)
-# plt.show()
-
-# tmp = [[1,2,3], [4, 5, 6], [7, 8, 9]]
-# print(tmp[:2])
 
 app = VisualizationApp()
 app.mainloop()
