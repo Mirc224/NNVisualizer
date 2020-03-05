@@ -5,12 +5,15 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.figure import Figure
 from matplotlib import backend_bases
 from mpl_toolkits.mplot3d import Axes3D
+import mpl_toolkits.mplot3d as plt3d
 import matplotlib.animation as animation
 from matplotlib import style
 import numpy as np
 import tkinter as tk
 from tkinter import ttk
 from GraphicalComponents import *
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
 
 LARGE_FONT = ('Verdana', 12)
 # style.use('seaborn-whitegrid')
@@ -18,23 +21,22 @@ tmp = None
 
 
 class VisualizationApp(tk.Tk):
-    '''
-    Spúšťacia trieda. Je obalom celeje aplikácie. Vytvorí programové okno, na celú obrazovku. Táto trieda dedí od
-    objektu Tk z build in knižnice tkinter.
-
-    Atribúty
-    --------
-    __frames : dict
-        je to dictionary, ktorý obsahuje jednotlivé hlavné stránky aplikácie. Kľúčom k týmto stránkam sú prototypy
-        daných stránok
-
-    Metódy
-    --------
-    show_frame(controller)
-        Zobrazuje stránku na základe zvoleného kontrolera.
-    '''
-
     def __init__(self, *args, **kwargs):
+        '''
+        Spúšťacia trieda. Je obalom celeje aplikácie. Vytvorí programové okno, na celú obrazovku. Táto trieda dedí od
+        objektu Tk z build in knižnice tkinter.
+
+        Atribúty
+        --------
+        __frames : dict
+            je to dictionary, ktorý obsahuje jednotlivé hlavné stránky aplikácie. Kľúčom k týmto stránkam sú prototypy
+            daných stránok
+
+        Metódy
+        --------
+        show_frame(controller)
+            Zobrazuje stránku na základe zvoleného kontrolera.
+        '''
 
         # Konštruktor základnej triedy.
         tk.Tk.__init__(self, *args, **kwargs)
@@ -79,6 +81,201 @@ class StartPage(tk.Frame):
         button3 = ttk.Button(self, text='Graph Page',
                              command=lambda: controller.show_frame(GraphPage))
         button3.pack()
+
+
+class GraphPage(tk.Frame):
+    def __init__(self, parent, controller):
+        '''
+        Popis
+        --------
+        Podstránka, na ktorej je zobrazovaný rámec s grafmi, váhami a okno s detailmi vrstvy.
+
+        :param parent: nadradený tkinter Widget
+        '''
+        tk.Frame.__init__(self, parent)
+        label = tk.Label(self, text='Graph Page', font=LARGE_FONT)
+        label.pack()
+        self.__logic_layer = GraphLogicLayer(self)
+        button1 = ttk.Button(self, text='Back to home',
+                             command=lambda: controller.show_frame(StartPage))
+        button1.pack()
+
+
+class GraphLogicLayer:
+    def __init__(self, parent):
+        '''
+        Popis
+        -------
+        Trieda, ktorá sa stará o logiku podstaty aplikácie, inicializuje základné grafické časti aplikácie, stará sa aj
+        o výpočty.
+
+        Atribúty
+        --------
+        :var self.__graph_page: odkaz na nadradený tkinter widget
+        :var self.__main_graph_frame: odkaz na hlavné okno, v ktorom sú vykresľované grafy pre jednotlivé vrstvy
+        :var self.__number_of_points: počet bodov na vstupe
+        :var self.__NNStructure: štruktúra neuronovej siete
+        :var self.__layer_points_values: obsahuje hodnoty súradnínc bodov na jednotlivých vrstvách
+        :var self.__points: súradnice bodov na vstupe
+        :var self.__number_of_layers: počet vrstiev v neurónovej sieti
+        :var self.__weights: list držiaci hodnoty váh v jednotlivých vrstvách pre jednotlivé kombinácie neurónov na
+                             určitej vrstve a vrstve za ňou nasledujúcej
+        :var self.__bias: list držiaci hodnoty bias pre výpočet hodnoty vybudenia neurónu na nasledujúcej vrstve
+
+        Parametre
+        --------
+        :param parent:
+        '''
+        self._graph_page = parent
+
+        self.__main_graph_frame = MainGraphFrame(parent, self, border=1)
+        self.__number_of_points = 0
+
+        # second DIM is layer  third are cords
+        self.__number_of_layers = 0
+        self.__NNStructure = None
+        self.__points = []
+        self.__layer_points_values = []
+        self.__weights = []
+        self.__bias = []
+
+        self.__polygon = None
+        self.__polygon_cords = None
+        self.__polygon_edges = None
+        self.__shared_line_cords_tuples = None
+
+        self.__main_graph_frame.pack(side='bottom', fill='both', expand=True)
+        struct = []
+        for i in range(5):
+            struct.append([5])
+
+
+        #struct.append([2])
+        #self.initialize([[4], [4], [5]])
+        self.initialize(struct)
+
+    def initialize(self, NNStructure: list):
+        '''
+        Popis
+        --------
+        Inicializuje hodnoty pre triedu GraphLogicLayer a tak isto aj pre triedy MainGraphFrame.
+
+        :param NNStructure: Štruktúra neurónovej siete
+        :type NNStructure: list
+        '''
+        self.__polygon = None
+        self.__polygon_cords = None
+        self.__polygon_edges = None
+        self.__NNStructure = NNStructure
+        self.__number_of_layers = len(NNStructure)
+
+        # Vytvorí v rámci listu vytvorí, ďalšie listy, ktorých počet predstavuje jednotlivé vrstvy a ich poradie.
+        # Pre jednotlivé vrstvy vygeneruje ďalšie listy, ktorých počet sa rovná počtu súradníc na vykreslenie daného
+        # bodu.
+
+        self.__layer_points_values = [[[] for y in range(layer[0])] for layer in NNStructure]
+
+        if NNStructure[0][0] < 4:
+            if NNStructure[0][0] == 3:
+                self.__polygon = Polygon([0, 0, 0], [10, 10, 10], [5, 5, 5])
+            elif NNStructure[0][0] == 2:
+                self.__polygon = Polygon([0, 0], [10, 10], [5, 5, 5])
+
+            self.__shared_line_cords_tuples = [[] for layer in NNStructure]
+            self.__polygon_cords = [[[] for y in range(layer[0])] for layer in NNStructure]
+            self.__polygon_cords[0] = self.__polygon.Peaks
+            self.__polygon_edges = self.__polygon.Edges
+
+            self.asign_shared_cord_tuples(0)
+
+        # Referencia na vstupnú vrstvu, do ktorej budú pridávané body.
+        self.__points = self.__layer_points_values[0]
+
+        # Vymazanie starých hodnôt váh a biasov.
+        self.__weights = []
+        self.__bias = []
+
+        # Vytvorenie potrebnej štruktúry listu. Na základe štruktúry neurónovej siete je vytvorený list, ktorý obsahuje
+        # ďalšie listy. Tieto listy predstavujú jednotlivé vrstvy. V rámci týchto vnorených listov je vytvorený ďalší
+        # list, ktorý predstavuje jednotlivé neuróny na vrstve. Do listu predstavujúceho vstupný neurón je potom
+        # priradená hodnota váhy pre zodpovedajúci neurón na nasledujúcej vrstve.
+        # Pre poslednú vrstvu nie je táto štruktúra vytvorená.
+        for layer_number, layer in enumerate(NNStructure):
+            if layer_number < self.__number_of_layers - 1:
+                self.__weights.append([])
+                self.__bias.append([])
+                for end_neuron_number in range(NNStructure[layer_number + 1][0]):
+                    self.__bias[layer_number].append(0)
+            else:
+                break
+            for start_neuron_number in range(layer[0]):
+                self.__weights[layer_number].append([])
+                for end_neuron_number in range(NNStructure[layer_number + 1][0]):
+                    self.__weights[layer_number][start_neuron_number].append(0)
+
+        for i in range(NNStructure[0][0]):
+            for j in range(10):
+                if i % 2:
+                    self.__points[i].append(j)
+                else:
+                    self.__points[i].append(j - 2)
+        # Prepočítanie súradníc podľa zodpovedajúcich dát
+        self.recalculate_cords()
+        self.__main_graph_frame.initialize(NNStructure, self.__layer_points_values, self.__weights, self.__bias, self.__shared_line_cords_tuples)
+
+    def recalculate_cords(self):
+        '''
+        Popis
+        --------
+        Prepočíta súradnice bodov na jednotlivých vrstvách na základe nastavených váh.
+        '''
+        for layer_number, layer_points in enumerate(self.__layer_points_values):
+            if layer_number < self.__number_of_layers - 1:
+
+                self.__layer_points_values[layer_number + 1][:] = self.apply_weights_and_biases(layer_points,
+                                                                                                layer_number).transpose().tolist()
+
+                # Ak existuje polygon
+                if self.__polygon:
+                    self.__polygon_cords[layer_number + 1][:] = self.apply_weights_and_biases(self.__polygon_cords[layer_number], layer_number).transpose().tolist()
+                    self.asign_shared_cord_tuples(layer_number + 1)
+            else:
+                break
+        self.__main_graph_frame.apply_changes()
+
+    def apply_weights_and_biases(self, cords, layer_number):
+        # Transponované súradnice bodov, aby ich bolo možné násobiť pomocou maticového násobenia.
+        cord_arr = np.array(cords).transpose()
+        # Predstavuje hodnoty váh pre danú vrstvu
+        weight_vec = np.array(self.__weights[layer_number])
+        # Násobenie matíc. Výsledkom sú súradnice bodov na nasledujúcej vrstve. K týmto hodnotám je však
+        # potrebné priratať hodnotu bias. To sa uskutoční v rámci cyklu.
+        tmp = cord_arr.dot(weight_vec)
+        vec = np.array(self.__bias[layer_number])
+        result = np.empty_like(tmp)
+
+        for i in range(tmp.shape[0]):
+            result[i, :] = tmp[i, :] + vec
+        result = np.maximum(result, 0)
+        return result
+
+
+    def add_point(self, *args):
+        self.__number_of___points += 1
+        for cord in range(len(self.__points)):
+            self.__points[cord].append(args[cord])
+        print(self.__layer_points_values)
+
+    def test(self):
+        print('starting test')
+        self.recalculate_cords()
+
+    def asign_shared_cord_tuples(self, layer_number):
+        tmpArr = np.array(self.__polygon_cords[layer_number]).transpose()
+        tmp = []
+        for edge in self.__polygon_edges:
+            tmp.append((tmpArr[edge[0]], tmpArr[edge[1]]))
+        self.__shared_line_cords_tuples[layer_number][:] = tmp
 
 
 class MainGraphFrame(tk.LabelFrame):
@@ -126,6 +323,12 @@ class MainGraphFrame(tk.LabelFrame):
         sa, len ak nie sú zobrazené ešte všetky vrstvy.
     '''
     def __init__(self, parent, logic_layer, *args, **kwargs):
+        '''
+        :param parent: nadradený tkinter widget
+        :type parent: tk.Widget
+        :param logic_layer: odkaz na logickú vrstvu
+        :type logic_layer: GraphLogicLayer
+        '''
         tk.LabelFrame.__init__(self, parent, *args, **kwargs)
 
         self.__logic_layer = logic_layer
@@ -141,6 +344,8 @@ class MainGraphFrame(tk.LabelFrame):
 
         self.__active_layers = []
         self.__active_layers_dict = {}
+
+        self.__shared_line_cords_tuples = None
 
         self.__input_panned = tk.PanedWindow(self)
         self.__input_panned.pack(fill='both', expand=True)
@@ -159,10 +364,50 @@ class MainGraphFrame(tk.LabelFrame):
         self.__add_graph_list_frame = ComboboxAddRemoveFrame(self.__scroll_frame.Frame, width=412, relief='sunken')
         self.__add_graph_list_frame.pack(side='right', fill='y')
 
-    def initialize(self, NNStructure: list, layer_points_ref: list, weights_ref: list, bias_ref: list):
+    def initialize(self, NNStructure: list, layer_points_ref: list, weights_ref: list, bias_ref: list, shared_polygon_cords):
+        '''
+        Popis
+        --------
+        Inicializačná funkcia. Inicializuje všetky potrbné komponenty tejto vrstvy. Na začiatku funkcie vyčistí vrstvy,
+        ak sa nejaké nachádzali medzi aktívnymi vrstvami.
+        Vytvorí predbežný zoznam názvov jednotlivých vrstiev. Po inicializácií AddRemoveComboboxFrame budú získane
+        unikátne mená, ktoré sa použijú ako kľúče v slovníku.
+
+        Na základe unikátnych mien je vytvorený slovník, ktorý prevádza meno vrstvy na jej poradové číslo a spätný
+        slovník, ktorý prvádza poradové číslo na názov vrstvy.
+
+        Sú priradené referencie na body, váhy a biasy.
+
+        Parametre
+        --------
+        :param NNStructure:
+        [[počet neuronov vo vrstve 0],...,[počet neuronov vo vrstve n]] - poradie vnoreného listu určuje poradové číslo
+                                                                          vrstvy
+        :type NNStructure: list
+
+        :param layer_points_ref:
+        [[vrstva 0],...,[vrstva n]] - poradie prvého vnoreného listu určuje poradové číslo vrstvy
+        [[[sur 0],...,[sur n]]] - v rámci vnoreného listu, ktorý je určený číslom strany, sú v rámci tohto vnoreného
+                                  listu poradím určené jednotlivé súradnice.
+        :type layer_points_ref: list
+
+        :param weights_ref:
+        [[vrstva 0],...,[vrstva n]] - poradie prvého vnoreného listu určuje poradové číslo vrstvy
+        [[[začiatočný neurón 0],...,[začiatočný neurón n]]] - poradie druhého vnoreného listu určuje poradové číslo
+                                                              neurónu na príslušnej vrstve
+        [[[váha koncový neurón 0,...,váha koncový neurón n]] - poradie v rámcie druhého vnoreného listu predstavuje
+                                                               poradové číslo neurónu na nasledujúcej vrstve
+        :type weights_ref: list
+
+        :param bias_ref: obdobne ako weights_ref
+        :type bias_ref: list
+        '''
+
+        # Zmazanie vrstiev, ak sa nejaké nachádali medzi aktívnymi vrstvami.
         for layer in self.__active_layers_dict.values():
             layer.clear()
 
+        # Vyčistenie slovníkov.
         self.__order_to_name_dict = {}
         self.__name_to_order_dict = {}
 
@@ -176,157 +421,125 @@ class MainGraphFrame(tk.LabelFrame):
         self.__input_frame.initialize(NNStructure[0][0])
         self.__number_of_layers = len(NNStructure)
 
-        # Ordered list of names which will be used for dictionary creation
+        self.__shared_line_cords_tuples = shared_polygon_cords
+
+        # Vytvorenie predbežného zoznamu názvov vrstiev.
         layer_name_list = []
         for i in range(self.__number_of_layers):
             layer_name_list.append('Layer{}'.format(i))
 
-        # AddGraph frame initialization, which return ordered unique name list, which will be used in dictionary
-        unique_name_list = self.__add_graph_list_frame.initialize(layer_name_list, self.show_layer, 'Add layer', True, 'Select layer')
+        # Inicializácia AddRemoveComboboxFrame. Funkcia navracia list unikátnych názvov vrstiev.
+        # Unikátne názvy su použité ako kľúče v slovníku.
+        unique_name_list = self.__add_graph_list_frame.initialize(layer_name_list, self.show_layer, 'Add layer', True,
+                                                                  'Select layer')
         for i, layerName in enumerate(unique_name_list):
             self.__order_to_name_dict[i] = layerName
             self.__name_to_order_dict[layerName] = i
 
         self.show_layer((0, 'Layer0'))
 
-    # A
     def apply_changes(self, starting_layer: int = 0):
+        '''
+        Popis
+        --------
+        Na základe parametra starting_layer, zavolá pre aktívne vrstvy, ktorých poradové číslo je väčsie ako hodnota
+        starting_layer, metódu na aplikovanie zmien na týchto vrstách.
+
+        Parametre
+        --------
+        :param starting_layer: int
+        - poradie vrstvy, od ktorej je potrebné aplikovať zmeny.
+        '''
         updated_layer = [layer_number for layer_number in self.__active_layers if layer_number >= starting_layer]
         for layer_number in updated_layer:
             self.__active_layers_dict[layer_number].apply_changes()
 
     def show_layer(self, layer_tuple: tuple):
+        '''
+        Popis
+        --------
+        Metóda na základe parametra obdržaného z triedy AddRemoveCombobox vytvorí a následne zobrazí zvolenú vrstvu.
+
+        Parametre
+        --------
+        :param layer_tuple:
+        (poradové číslo vrstvy ,názov vrstvy) - obashuje hodnotu z triedy AddRemoveCombobox
+        '''
         layer_name = layer_tuple[1]
         layer_number = self.__name_to_order_dict[layer_name]
 
+        # Otestuje, či je číslo vrstvy valídne.
         if 0 <= layer_number < self.__number_of_layers:
             layer_to_show = None
+
+            # Ak nejde o poslednú vrstvu (posledná vrstva má iné inicializačné údaje) je vrstva inicializovaná aj s
+            # parametrami referencií na váhy a biasy v danej vrstve
             if layer_number < self.__number_of_layers - 1:
                 layer_to_show = NeuralLayer(self.__scroll_frame.Frame, self, self.__logic_layer)
-                layer_to_show.initialize(self.__NNStructure[layer_number][0], layer_number, self.__layers_points[layer_number],
-                                       self.__layers_weights[layer_number], self.__layers_biases[layer_number], layer_name)
+
+                shared_line_cords = None
+                if self.__shared_line_cords_tuples:
+                    shared_line_cords = self.__shared_line_cords_tuples[layer_number]
+
+                layer_to_show.initialize(layer_number, self.__layers_points[layer_number],
+                                         self.__layers_weights[layer_number], self.__layers_biases[layer_number],
+                                         layer_name, shared_line_cords)
             else:
                 layer_to_show = NeuralLayer(self.__scroll_frame.Frame, self, self.__logic_layer)
-                layer_to_show.initialize(self.__NNStructure[layer_number][0], layer_number, self.__layers_points[layer_number],
-                                       None, None, layer_name)
+
+                shared_line_cords = None
+                if self.__shared_line_cords_tuples:
+                    shared_line_cords = self.__shared_line_cords_tuples[layer_number]
+                layer_to_show.initialize(layer_number, self.__layers_points[layer_number],
+                                         None, None, layer_name, shared_line_cords)
 
             layer_to_show.pack(side='left', fill=tk.BOTH, expand=True)
-
+            # Po zobrazení vrstvy, je odkaz na túto vrstvu vložený do slovníka aktívnych vrstiev, kde je kľúčom poradové
+            # číslo vrstvy. Ďalej je poradové číslo vrstvy vložené aj do listu aktívnych vrstiev, ktorý sa využíva pri
+            # efektívnejšom updatovaní vykresľovaných grafov.
             self.__active_layers_dict[layer_number] = layer_to_show
             self.__active_layers.append(layer_number)
             self.__add_graph_list_frame.hide_item(layer_name)
 
+            # Ak je počet aktívnych vrstiev rovný celkovému počtu vrstiev je skrytý panel pre pridávanie nových vrstiev.
             if len(self.__active_layers) == self.__number_of_layers:
                 self.__add_graph_list_frame.pack_forget()
 
     def hide_layer(self, layer_number: int):
-        layer_name = self.__order_to_name_dict[layer_number]
-        layer = self.__active_layers_dict.pop(layer_number)
-        layer.clear()
-        self.__active_layers.remove(layer_number)
-        self.__add_graph_list_frame.show_item(layer_name)
-        if len(self.__active_layers) < self.__number_of_layers:
-            self.__add_graph_list_frame.pack(side='right', fill='y', expand=True)
-# dokaze vykreslit max 285x2 okienok
+        '''
+        Popis
+        --------
+        Skryje vrstvu, podľa jej poradového čísla
 
+        Parametre
+        --------
+        :param layer_number: číslo vrstvy, ktorá má byť skrytá
+        :type layer_number: int
+        '''
+        if layer_number in self.__active_layers:
+            layer_name = self.__order_to_name_dict[layer_number]
+            layer = self.__active_layers_dict.pop(layer_number)
+            layer.clear()
+            self.__active_layers.remove(layer_number)
+            self.__add_graph_list_frame.show_item(layer_name)
+            if len(self.__active_layers) < self.__number_of_layers:
+                self.__add_graph_list_frame.pack(side='right', fill='y', expand=True)
 
-class GraphLogicLayer:
-    def __init__(self, parent):
-        self._graph_page = parent
-
-        self.__main_graph_frame = MainGraphFrame(parent, self, border=1)
-        self.__number_of_points = 0
-
-        # second DIM is layer  third are cords
-        self.__number_of_layers = 0
-        self.__NNStructure = None
-        self.__points = []
-        self.__layer_points_values = []
-        self.__weights = []
-        self.__bias = []
-
-        self.__main_graph_frame.pack(side='bottom', fill='both', expand=True)
-        struct = []
-        for i in range(4):
-            struct.append([2])
-        self.initialize(struct)
-        #self.initialize(struct)
-
-    def initialize(self, NNStructure: list):
-        self.__NNStructure = NNStructure
-        self.__number_of_layers = len(NNStructure)
-        self.__layer_points_values = [[[] for y in range(layer[0])] for layer in NNStructure]
-        self.__points = [[] for x in range(NNStructure[0][0])]
-        self.__layer_points_values[0] = self.__points
-
-        self.__weights = []
-        self.__bias = []
-        for layer_number, layer in enumerate(NNStructure):
-            if layer_number < self.__number_of_layers - 1:
-                self.__weights.append([])
-                self.__bias.append([])
-                for end_neuron_number in range(NNStructure[layer_number + 1][0]):
-                    self.__bias[layer_number].append(0)
-            else:
-                break
-            for start_neuron_number in range(layer[0]):
-                self.__weights[layer_number].append([])
-                for end_neuron_number in range(NNStructure[layer_number + 1][0]):
-                    self.__weights[layer_number][start_neuron_number].append(0)
-
-        for i in range(NNStructure[0][0]):
-            for j in range(4):
-                if i % 2:
-                    self.__points[i].append(j)
-                else:
-                    self.__points[i].append(j - 1)
-        self.recalculate_cords()
-        self.__main_graph_frame.initialize(NNStructure, self.__layer_points_values, self.__weights, self.__bias)
-
-    def recalculate_cords(self):
-        for layer_number, layer_points in enumerate(self.__layer_points_values):
-            if layer_number < self.__number_of_layers - 1:
-                na = np.array(layer_points).transpose()
-                # print(na)
-                b = np.array(self.__weights[layer_number])
-                # print(b)
-                tmp = na.dot(b)
-                vec = np.array(self.__bias[layer_number])
-                result = np.empty_like(tmp)
-                for i in range(tmp.shape[0]):
-                    result[i, :] = tmp[i, :] + vec
-
-                self.__layer_points_values[layer_number + 1][:] = result.transpose().tolist()
-            else:
-                break
-        # print(self.LayerPointsValues)
-        self.__main_graph_frame.apply_changes()
-
-    def add_point(self, *args):
-        self.__number_of___points += 1
-        # print(args)
-        for cord in range(len(self.__points)):
-            self.__points[cord].append(args[cord])
-
-        print(self.__layer_points_values)
-
-    def test(self):
-        print('starting test')
-        self.recalculate_cords()
-
-class GraphPage(tk.Frame):
-    def __init__(self, parent, controller):
-        tk.Frame.__init__(self, parent)
-        label = tk.Label(self, text='Graph Page', font=LARGE_FONT)
-        label.pack()
-        self.__logic_layer = GraphLogicLayer(self)
-        button1 = ttk.Button(self, text='Back to home',
-                             command=lambda: controller.show_frame(StartPage))
-        button1.pack()
 
 
 class InputDataFrame(tk.LabelFrame):
     def __init__(self, parent, logicalLayer: GraphLogicLayer, *args, **kwargs):
+        '''
+        Popis
+        --------
+        Obsahuje ovladacie prvky pre jednotlivé vrstvy. V rámci nej je možne navoliť zobrazované súradnice ako aj
+        povoliť zobrazenie mriežky, ak je to možné. Je možné aj zvoliť redukciu priestoru a zobraziť požadovaný
+        PCA komponent alebo použiť metódu t-SNE.
+        V spodnej časti panelu sa budú zobrazovať informácie o rozkliknutom bode.
+
+        :param parent: nadradený tkinter Widget
+        :param logicalLayer: odkaz na logickú vrstvu grafu
+        '''
         tk.LabelFrame.__init__(self, parent, width=285, *args, **kwargs)
         self.__graph_logic = logicalLayer
         self.pack_propagate(0)
@@ -370,55 +583,173 @@ class InputDataFrame(tk.LabelFrame):
 
 class NeuralLayer:
     def __init__(self, parent, mainGraph: MainGraphFrame, logicLayer: GraphLogicLayer, *args, **kwargs):
-        self.__graph_frame = GraphFrame(self, mainGraph, parent, *args, **kwargs)
+        '''
+        Popis
+        --------
+        Trieda predstavuje vrstvu neurónovej siete. V rámci nej budú do grafu volené zobrazované súradnice bodov.
+        Bude uskutočňovať PCA redukciu priestoru.
+
+        Aribúty
+        --------
+        :var self.__graph_frame: udržuje v sebe triedu GraphFrame, ktorá vytvá zobrazovací graf a ovládač váh
+        :var self.__layer_name: názov vrstvy
+        :var self.__layer_number: poradové číslo vrstvy
+        :var self.__point_cords: referencia na súradnice bodov v danej vrstve. (hodnoy sa menia v GraphLogicLayer)
+        :var self.__displayed_cords: obsahuje súradnice, ktoré budú zobrazené v grafe. Referenciu na tento objekt
+                                     obsahuje aj PlotingFrame
+
+        Parametre
+        --------
+        :param parent: nadradený tkinter Widget
+        :param mainGraph: odkaz na MainGraph
+        :param logicLayer: odkaz na logicku vrstvu GraphLogicLayer
+        :param args:
+        :param kwargs:
+        '''
+        self.__layer_wrapper = tk.LabelFrame(parent)
+
+        self.__layer_options_container = tk.Frame(self.__layer_wrapper)
+        self.__layer_options_container.pack(side='top', fill='x')
+
+        self.__options_button = ttk.Button(self.__layer_options_container, text='Options')
+        self.__options_button.pack(side='left')
+        self.__hide_button = ttk.Button(self.__layer_options_container, command=self.hide_graph_frame, text='Hide')
+        self.__hide_button.pack(side='right')
+
+        self.__graph_frame = GraphFrame(self, self.__layer_wrapper, *args, **kwargs)
+
+        self.__shared_polygon_cords_tuples = None
+        self.__displayed_lines_cords = None
+        self.__graph_frame.pack()
         self.__main_graph_frame = mainGraph
         self.__logic_layer = logicLayer
         self.__layer_name = ''
         self.__layer_number = -1
         self.__number_of_dimension = -1
         self.__point_cords = []
+        self.__displayed_cords = []
+        self.__used_cords = []
 
     def pack(self, *args, **kwargs):
-        self.__graph_frame.pack(*args, **kwargs)
+        self.__layer_wrapper.pack(*args, **kwargs)
 
-    def initialize(self, num_of_dim: int, layer_number: int, layer_point_cords: list, layer_weights: list = None,
-                   layer_bias: list = None, layer_name: str = None):
-        self.__number_of_dimension = num_of_dim
+    def initialize(self, layer_number: int, layer_point_cords: list, layer_weights: list = None,
+                   layer_bias: list = None, layer_name: str = None, shared_polygon_cords = None):
+        '''
+        Parametre
+        --------
+        :param layer_number: poradové číslo vrstvy
+        :param layer_point_cords: refrencia na zoznam súradníc bodov pre danú vrstvu
+        :param layer_weights: referencia na hodnoty váh v danej vrstve. Hodnoty sú menené v controllery a používajú sa
+                              pri prepočítavaní súradnic v GraphLogicLayer.
+        :param layer_bias: referencia na hodnoty bias v danej vrstve. Podobne ako pr layer_weights
+        :param layer_name: názov vrstvy, je unikátny pre každú vrstvu, spolu s poradovým číslom sa používa ako ID.
+        '''
+        # Počet dimenzií, resp. počet súradníc zistíme podľa počtu vnorených listov.
+        self.__number_of_dimension = len(layer_point_cords)
         self.__layer_number = layer_number
+        self.__layer_name = layer_name
+        self.__point_cords = []
+
         self.__point_cords = layer_point_cords
-        if layer_name:
-            self.__layer_name = layer_name
+
+        self.__displayed_lines_cords = []
+        self.__shared_polygon_cords_tuples = shared_polygon_cords
+
+        # Počet súradníc ktoré sa majú zobraziť určíme ako menšie z dvojice čísel 3 a počet dimenzií, pretože max počet,
+        # ktorý bude možno zoraziť je max 3
+        number_of_cords = min(3, self.__number_of_dimension)
+        for i in range(number_of_cords):
+            self.__displayed_cords.append(self.__point_cords[i])
+            self.__used_cords.append(i)
+
+        if shared_polygon_cords:
+            tmp1 = np.array(self.__shared_polygon_cords_tuples)[:,0,self.__used_cords]
+            tmp2 = np.array(self.__shared_polygon_cords_tuples)[:,1,self.__used_cords]
+            self.__displayed_lines_cords[:] = (list(zip(tmp1, tmp2)))
         else:
-            self.__layer_name = 'Layer {}'.format(layer_number)
-        self.__graph_frame.initialize(self, self.__number_of_dimension, self.__layer_name, self.__point_cords, layer_weights, layer_bias)
+            self.__displayed_lines_cords = None
+
+
+        self.__graph_frame.initialize(self, number_of_cords, self.__layer_name, self.__displayed_cords, layer_weights, layer_bias, self.__displayed_lines_cords)
+        self.__graph_frame.pack(fill='both', expand=True)
+
+
 
     def apply_changes(self):
+        '''
+        Popis
+        --------
+        Aplikovanie zmien po prepočítaní súradníc.
+        '''
+        # Je potrbné podľa navolených zobrazovaných súradníc priradiť z prepočítaných jednotlivé súradnice do súradníc
+        # zobrazovaných.
+        for i,  used_cord in enumerate(self.__used_cords):
+            self.__displayed_cords[i] = self.__point_cords[used_cord]
+        if self.__shared_polygon_cords_tuples:
+            tmp1 = np.array(self.__shared_polygon_cords_tuples)[:,0,self.__used_cords]
+            tmp2 = np.array(self.__shared_polygon_cords_tuples)[:,1,self.__used_cords]
+            self.__displayed_lines_cords[:] = list(zip(tmp1, tmp2))
         self.__graph_frame.apply_changes()
 
     def hide_graph_frame(self):
+        '''
+        Popis
+        --------
+        Skrytie tejto vrstvy.
+        '''
         self.__main_graph_frame.hide_layer(self.__layer_number)
 
     def clear(self):
+        '''
+        Popis
+        --------
+        Používat sa pri mazaní. Vyčistí premenné a skryje danú vrstvu.
+        '''
         self.__graph_frame.clear()
+        self.__layer_options_container.destroy()
+        self.__options_button.destroy()
+        self.__layer_wrapper.destroy()
+        self.__hide_button.destroy()
+        self.__layer_options_container = None
+        self.__options_button = None
+        self.__layer_wrapper = None
+        self.__hide_button = None
 
     def signal_change(self):
         self.__logic_layer.recalculate_cords()
 
+    def __del__(self):
+        print('neural layer destroyed')
+
 
 class GraphFrame(tk.LabelFrame):
-    def __init__(self, neural_layer: NeuralLayer, main_graph: MainGraphFrame, parent, *args, **kwargs):
+    def __init__(self, neural_layer: NeuralLayer, parent, *args, **kwargs):
+        '''
+        Popis
+        --------
+        Obaľovacia trieda. Zodpovedá za vytvorenie vykaresľovacieho grafu a ovládača váh.
+
+        Atribúty
+        --------
+        :var self.__graph: vykresľovacia trieda, zodpoveda za vykresľovanie bodov na vrstve
+        :var self.__weight_controller: zmena koeficientov váh v danej vrstve
+
+        Parametre
+        --------
+        :param neural_layer: odkaz na NeuralLayer, pod ktroú patrí daný GraphFrame
+        :param parent: nadradený tkinter Widget
+        '''
         tk.LabelFrame.__init__(self, parent, *args, **kwargs)
         self.__neural_layer = neural_layer
-        self.__main_graph_frame = main_graph
-        self.__layer_number = -1
-        self.__number_of_dim = -1
 
         self.__graph = PlotingFrame(self, self)
         self.__weight_controller = LayerWeightControllerFrame(self, self)
 
-    def initialize(self, neuralLayer: int, numOfDimensions: int, layer_name: str ,pointCords: list, layer_weights: list, layerBias: list):
+    def initialize(self, neuralLayer: int, numOfDimensions: int, layer_name: str ,pointCords: list, layer_weights: list,
+                   layerBias: list, shared_polygon_layer_cords):
         self.__neural_layer = neuralLayer
-        self.__graph.initialize(numOfDimensions, pointCords, layer_name)
+        self.__graph.initialize(numOfDimensions, pointCords, layer_name, shared_polygon_layer_cords)
         self.__weight_controller.initialize(layer_weights, layerBias)
 
         self.__graph.pack(side=tk.TOP)
@@ -431,33 +762,62 @@ class GraphFrame(tk.LabelFrame):
         self.__neural_layer.hide_graph_frame()
 
     def clear(self):
+        '''
+        Popis
+        --------
+        Vyčistenie pri mazaní okna.
+        '''
         self.pack_forget()
         self.__weight_controller.clear()
         self.__graph.clear()
         self.__weight_controller = None
-        self.__main_graph_frame = None
         self.__neural_layer = None
         self.__graph = None
 
     def controller_signal(self):
+        '''
+        Popis
+        --------
+        Posúva signál o zmene váhy neurónovej vrstve.
+        '''
         self.__neural_layer.signal_change()
 
 class PlotingFrame:
-    def __init__(self, parent, controller, *args, **kwargs):
-        self.__plot_wrapper_frame = tk.LabelFrame(parent, *args, **kwargs)
+    def __init__(self, parent, main_graph_frame,*args, **kwargs):
+        '''
+        Popis
+        --------
+        Obsahuje v sebe graf z knižnice matplotlib. Zobrazuje ako vyzerjú transformované body v danej vrstve. Zobrazuje
+        aj mriežku.
+
+        Atribúty
+        --------
+        :var self.__cords = obsahuje odkaz na súradnice bofob, ktoré budú zobrazované
+        :var self.__number_of_dim: udáva počet vykresľovaných dimenzií
+        :var self.__graph_title: názov, ktorý sa bude zobrazovať vo vykresľovanom grafe
+        :var self.__graph_labels: názvy jednotlivých osí
+        :var self.__main_graph_frame: odkaz na graph frame, bude použitý na zobrazovanie informácií o rozkliknutom bode
+        :var self.__figure: matplotlib figúra
+        :var self.__canvas: ide o plátno, na to aby bolo možné použiť matplolib grafy v rámci tkinter
+        :var self.__axis: matplotlib osi, získane z figúry
+        :var self.__draw_2D: vyjadruje, či sa má graf vykresliť ako 2D
+        :var self.__toolbar: matplotlib toolbar na posúvanie približovanie a podobne. Zobrazovaný len pri 2D. Pri 3D
+                             je pohľad ovládaný myšou
+        :var self.__changed: pre efektívnejší update
+        :var self.__ani: animácia pre prekresľovanie grafu pri zmenách. Najjedoduchší spôsob pre interaktívne a
+                         dynamické grafy
+        '''
+        self.__plot_wrapper_frame = tk.Frame(parent, *args, **kwargs)
         self.__plot_wrapper_frame.pack()
         self.__cords = [[], [], []]
+        self.__line_cords_tuples = None
+
+        self.__draw_polygon = False
+
         self.__number_of_dim = -1
-        self.__graph_frame = controller
         self.__graph_title = 'Graf'
         self.__graph_labels = ['Label X', 'Label Y', 'Label Z']
-
-        self.__upper_bar = tk.LabelFrame(self.__plot_wrapper_frame, border=0)
-        self.__upper_bar.pack(side='top', fill='x', expand=True)
-        self.__dim_change_button = ttk.Button(self.__upper_bar, command=self.change_graph_dimension)
-        self.__hide_button = ttk.Button(self.__upper_bar, command=self.__graph_frame.hide_graph_frame)
-        #self.__hide_button = ttk.Button(self.__upper_bar)
-        self.__hide_button.pack(side='right')
+        self.__main_graph_frame = main_graph_frame
 
         self.__graph_container = tk.LabelFrame(self.__plot_wrapper_frame, relief=tk.FLAT)
 
@@ -481,9 +841,12 @@ class PlotingFrame:
         self.__changed = False
         self.__ani = animation.FuncAnimation(self.__figure, self.update_changed, interval=100)
 
-    def initialize(self, numberOfDim: int, pointCords: list, layerName: str):
+    def initialize(self, numberOfDim: int, pointCords: list, layerName: str, shared_polygon_layer_cords):
+        if shared_polygon_layer_cords:
+            self.__line_cords_tuples = shared_polygon_layer_cords
+            self.__draw_polygon = True
+
         self.__cords = pointCords
-        self.__dim_change_button.pack(side=tk.LEFT)
         self.__graph_container.pack(side=tk.TOP)
         self.set_graph_dimension(numberOfDim)
         self.__graph_title = layerName
@@ -508,6 +871,21 @@ class PlotingFrame:
     def redraw_graph(self):
         self.__axis.clear()
         self.__axis.grid()
+
+        if self.__draw_polygon:
+            if self.__number_of_dim >= 3:
+                for hrana in self.__line_cords_tuples:
+                    xs = hrana[0][0], hrana[1][0]
+                    ys = hrana[0][1], hrana[1][1]
+                    zs = hrana[0][2], hrana[1][2]
+                    line = plt3d.art3d.Line3D(xs, ys, zs, color='black', linewidth=1, alpha=0.3)
+                    self.__axis.add_line(line)
+            if self.__number_of_dim == 2:
+                for hrana in self.__line_cords_tuples:
+                    xs = hrana[0][0], hrana[1][0]
+                    ys = hrana[0][1], hrana[1][1]
+                    self.__axis.plot(xs, ys, linestyle='-', color='black', linewidth=1, alpha=0.5)
+
         if self.__number_of_dim >= 3:
             if len(self.__cords) > 2:
                 self.__axis.scatter(self.__cords[0], self.__cords[1], self.__cords[2])
@@ -550,7 +928,6 @@ class PlotingFrame:
 
         # self.__graph_title = 'Graph {}D'.format(self.NumberOfDim)
         self.__changed = True
-        self.__dim_change_button.configure(text=text)
         self.__ani.event_source.start()
 
     def clear(self):
@@ -558,20 +935,13 @@ class PlotingFrame:
         self.__toolbar.destroy()
         self.__canvas.get_tk_widget().destroy()
         self.__plot_wrapper_frame.destroy()
-        self.__dim_change_button.destroy()
         self.__figure.delaxes(self.__axis)
         self.__graph_container.destroy()
-        self.__hide_button.destroy()
-        self.__upper_bar.destroy()
         self.__figure.clf()
         self.__axis.cla()
-        self.__dim_change_button = None
         self.__graph_container = None
         self.__graph_labels = None
         self.__graph_title = None
-        self.__hide_button = None
-        self.__graph_frame = None
-        self.__upper_bar = None
         self.__toolbar = None
         self.__canvas = None
         self.__figure = None
@@ -654,7 +1024,7 @@ class LayerWeightControllerFrame:
         slider_name = 'Bias {}'.format(end_neuron)
         slider = ModifiedClickableSlider(self.__scrollable_window.Frame, slider_name, self.test, from_=-10, to=10,
                                          resolution=0.01, digits=3,
-                                         text=slider_name)
+                                         text=slider_name, command=self.testovaci)
         slider.set_variable(self.__bias_reference, end_neuron)
         slider.pack(fill='x', expand=True, padx=(0, 2), pady=0)
         self.__active_slider_dict[slider_name] = slider
@@ -710,52 +1080,118 @@ class LayerWeightControllerFrame:
     def __del__(self):
         print('Mazanie controller')
 
-class Testovacia(tk.Frame):
-    def __init__(self, parent):
-        tk.Frame.__init__(self, parent)
-        # self.__figure = Figure(figsize=(4, 4), dpi=100)
-        # self.__axis = self.__figure.add_subplot(111, projection='3d')
-        # self.__canvas = Figure__canvasTkAgg(self.__figure, self)
-        # self.__canvas.get_tk_widget().pack()
-        # self.__axis.scatter([0, 1], [0, 1], [0, 1])
-        # self.__canvas.draw()
-
+class Testovacia():
+    def __init__(self, ref):
+        self._tmp = []
+        for i in range(len(ref)):
+            self._tmp.append(ref[i])
     def zmazaj(self):
-        # self.__canvas.get_tk_widget().destroy()
-        # self.__axis.cla()
-        # self.__figure.clear()
-        # self.__figure.clf()
-        # self.__canvas = None
-        # self.__axis = None
-        # self.__figure = None
-        #self.destroy()
         self.destroy()
 
     def __del__(self):
         print('mazem')
 
-# root = tk.Tk()
-# plotting = LayerWeightControllerFrame(root)
-# plotting.pack()
-# plotting.clear()
-# plotting = None
-# root.mainloop()
 
-# #__canvas = tk.Canvas(root)
-# okno = tk.Frame(root)
-# okno.pack()
-# root = tk.Tk()
-# test = Testovacia(root)
-# test.zmazaj()
-# test = None
-# root.mainloop()
-# test = {1: '3', 2:'2', 4:'3', 3:'4'}
+class Polygon:
+    def __init__(self, lower_list,  upper_list, divide_list = [2, 2, 2]):
+        numberOfCords = min(len(lower_list), len(upper_list))
+        self.Peaks = [[] for x in range(numberOfCords)]
+        self.Edges = []
+        self.EdgesXY = []
+        self.EdgesXZ = []
+        self.EdgesYZ = []
+        self.Edges2D = []
+        max_size = []
+        cord_sign = []
+        for i in range(numberOfCords):
+            max_size.append(math.fabs(lower_list[i] - upper_list[i]))
+            cord_sign.append(1 if lower_list[i] < upper_list[i] else -1)
+
+        new_divide = []
+        if len(divide_list) != numberOfCords:
+            number_of_divide = min(len(divide_list), numberOfCords)
+            for i in range(number_of_divide):
+                new_divide.append(divide_list[i])
+                if new_divide[i] < 1:
+                    new_divide[i] = 1
+            for i in range(numberOfCords - number_of_divide):
+                new_divide.append(1)
+        else:
+            new_divide = divide_list
+
+        offset_list = []
+        for i in range(numberOfCords):
+            offset_list.append(cord_sign[i] * (max_size[i] / new_divide[i]))
+
+        if numberOfCords == 3:
+            for z in range(new_divide[2] + 1):
+                for y in range(new_divide[1] + 1):
+                    for x in range(new_divide[0] + 1):
+                        pointNumber = z * ((new_divide[1] + 1) * (new_divide[0] + 1)) + y * (new_divide[0] + 1) + x
+                        self.Peaks[0].append(lower_list[0] + x * offset_list[0])
+                        self.Peaks[1].append(lower_list[1] + y * offset_list[1])
+                        self.Peaks[2].append(lower_list[2] + z * offset_list[2])
+                        if x != new_divide[0]:
+                            self.Edges.append([pointNumber, pointNumber + 1])
+                            if z == 0:
+                                self.EdgesXY.append([pointNumber, pointNumber + 1])
+                            if y == 0:
+                                self.EdgesXZ.append([pointNumber, pointNumber + 1])
+                        if y != new_divide[1]:
+                            self.Edges.append([pointNumber, pointNumber + (new_divide[0] + 1)])
+                            if z == 0:
+                                self.EdgesXY.append([pointNumber, pointNumber + (new_divide[0] + 1)])
+                            if x == 0:
+                                self.EdgesYZ.append([pointNumber, pointNumber + (new_divide[0] + 1)])
+                        if z != new_divide[2]:
+                            self.Edges.append([pointNumber, pointNumber + (new_divide[1] + 1) * (new_divide[0] + 1)])
+                            if y == 0:
+                                self.EdgesXZ.append([pointNumber, pointNumber + (new_divide[1] + 1) * (new_divide[0] + 1)])
+                            if x == 0:
+                                self.EdgesYZ.append([pointNumber, pointNumber + (new_divide[1] + 1) * (new_divide[0] + 1)])
+            for y in range(new_divide[1] + 1):
+                for x in range(new_divide[0] + 1):
+                    pointNumber = y * (new_divide[0] + 1) + x
+                    if x != new_divide[0]:
+                        self.Edges2D.append([pointNumber, pointNumber + 1])
+                    if y != new_divide[1]:
+                        self.Edges2D.append([pointNumber, pointNumber + (new_divide[0] + 1)])
+        else:
+            for y in range(new_divide[1] + 1):
+                for x in range(new_divide[0] + 1):
+                    pointNumber = y * (new_divide[0] + 1) + x
+                    self.Peaks[0].append(lower_list[0] + x * offset_list[0])
+                    self.Peaks[1].append(lower_list[1] + y * offset_list[1])
+                    if x != new_divide[0]:
+                        self.Edges.append([pointNumber, pointNumber + 1])
+                    if y != new_divide[1]:
+                        self.Edges.append([pointNumber, pointNumber + (new_divide[0] + 1)])
+
+# tmp = Polygon([-10, -10, -10], [10, 10, 10], [4,4,4])
+# hrany = np.array(tmp.Edges2D)
+# x = np.array(tmp.Peaks[0])
+# y = np.array(tmp.Peaks[1])
+# #z = np.array(tmp.Peaks[2])
 #
-# print(test)
-# for key in test.keys():
-#     if key > 2:
-#         print(key)
+# fig = plt.figure()
+# # 2D
+# # ax = fig.add_subplot(111)
+# # ax.plot(x[hrany.T], y[hrany.T], linestyle='-', color='y',
+# #        markerfacecolor='red', marker='o')
+#
+# # 3D
+# ax = fig.add_subplot(111, projection='3d')
+# # # ax.scatter(x,y,z)
+# for hrana in hrany:
+#     xs = x[hrana[0]], x[hrana[1]]
+#     ys = y[hrana[0]], y[hrana[1]]
+#     #zs = z[hrana[0]], z[hrana[1]]
+#     line = plt3d.art3d.Line3D(xs, ys, (0, 0,))
+#     ax.add_line(line)
+# plt.show()
+
+# tmp = [[1,2,3], [4, 5, 6], [7, 8, 9]]
+# print(tmp[:2])
 
 app = VisualizationApp()
 app.mainloop()
-
