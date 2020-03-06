@@ -197,6 +197,49 @@ class ComboboxAddRemoveFrame(tk.LabelFrame):
     def __del__(self):
         print('mazanie combobox')
 
+class RewritableLabel(tk.Frame):
+    def __init__(self, parent, id, enter_command,label_text, variable_text='',*args, **kwargs):
+        tk.Frame.__init__(self, parent, *args, **kwargs)
+        self.__id = id
+        self.__name_label = tk.Label(self, text=label_text)
+        self.__name_label.pack(side='left')
+        self.__changeable_label_frame = tk.Frame(self)
+        self.__changeable_label_frame.pack(side='left')
+        self.__variable_label = tk.Label(self.__changeable_label_frame, text=variable_text)
+        self.__entry = tk.Entry(self.__changeable_label_frame)
+        self.__variable_label.pack()
+        self.__changeable_label_frame.pack()
+        self.__variable_label.bind('<Double-1>', self.show_entry)
+        self.__enter_function = enter_command
+        self.__entry.bind('<Return>', self.on_enter)
+        self.__entry.bind('<Escape>', self.show_variable_label)
+
+    def on_enter(self, event):
+        self.__enter_function(self.__id, self.__entry.get())
+
+    def set_label_name(self, name):
+        self.__name_label.configure(text=name)
+
+    def show_entry(self, event):
+        self.__variable_label.pack_forget()
+        self.set_entry_text(self.__variable_label.cget('text'))
+        self.__entry.pack()
+
+    def set_entry_text(self, text=''):
+        self.__entry.delete(0, tk.END)
+        self.__entry.insert(0, text)
+
+    def set_variable_label(self, value):
+        self.__variable_label.configure(text=value)
+
+    def show_variable_label(self, event=None):
+        self.__entry.pack_forget()
+        self.__variable_label.pack()
+
+    def set_entry_width(self, new_width):
+        self.__entry.configure(width=new_width)
+
+
 class ClickableSlider(tk.LabelFrame):
     def __init__(self, parent, slider_id, hide_command, *args, **kwargs):
         if 'text' in kwargs:
