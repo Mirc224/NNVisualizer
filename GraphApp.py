@@ -1,19 +1,14 @@
 import matplotlib
-
 matplotlib.use('TkAgg')
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 from matplotlib import backend_bases
-from mpl_toolkits.mplot3d import Axes3D
 import mpl_toolkits.mplot3d as plt3d
 import matplotlib.animation as animation
-from matplotlib import style
 import numpy as np
 import tkinter as tk
-from tkinter import ttk
 from GraphicalComponents import *
-import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
+from tensorflow import keras
 
 LARGE_FONT = ('Verdana', 12)
 # style.use('seaborn-whitegrid')
@@ -142,6 +137,8 @@ class GraphLogicLayer:
 
         self.__neural_layers = []
 
+        self.__keras_model = keras.models.load_model('modelik.h5')
+
         self.__polygon = None
         self.__polygon_cords = None
         self.__polygon_edges = None
@@ -154,7 +151,7 @@ class GraphLogicLayer:
 
         # struct.append([2])
         #self.initialize([[2], [3]])
-        self.initialize([[3], [3]])
+        self.initialize([[3], [2]])
         #self.initialize([[3], [2]])
         #self.initialize(struct)
 
@@ -1179,11 +1176,15 @@ class PlotingFrame:
                 self.__axis.scatter(self.__cords[0], self.__cords[1])
             self.__axis.set_zlabel(self.__graph_labels[2])
         else:
-            # tmp = np.zeros(len(self.__cords[0])).tolist()
-            self.__axis.scatter(self.__cords[0], self.__cords[1])
+            if len(self.__cords) == 1:
+                zero_list = np.zeros(len(self.__cords[0]))
+                self.__axis.scatter(self.__cords[0], zero_list)
+            else:
+                self.__axis.scatter(self.__cords[0], self.__cords[1])
         self.__axis.set_title(self.__graph_title)
         self.__axis.set_xlabel(self.__graph_labels[0])
-        self.__axis.set_ylabel(self.__graph_labels[1])
+        if len(self.__cords) != 1:
+            self.__axis.set_ylabel(self.__graph_labels[1])
 
         if self.__locked_view:
             self.__axis.set_xlim(tmpX)
