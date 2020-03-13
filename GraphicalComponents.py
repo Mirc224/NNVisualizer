@@ -395,13 +395,13 @@ class ModifiedClickableSlider(ClickableSlider):
         self.display_value(varList[index])
 
     def display_value(self, value):
-        if self.__weight_list:
+        if self.__weight_list is not None:
             self.__weight_list[self.__index] = float(value)
         super().display_value(value)
 
     def validate_entry(self, event):
         if super().validate_entry(event):
-            if self.__weight_list:
+            if self.__weight_list is not None:
                 self.__weight_list[self.__index] = float(super().get_value())
     def clear(self):
         self.__weight_list = None
