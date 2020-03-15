@@ -4,6 +4,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.figure import Figure
 from matplotlib import backend_bases
 import mpl_toolkits.mplot3d as plt3d
+from mpl_toolkits.mplot3d import proj3d
 import matplotlib.animation as animation
 import numpy as np
 import tkinter as tk
@@ -11,10 +12,12 @@ from GraphicalComponents import *
 from tensorflow import keras
 import threading
 import time
-LARGE_FONT = ('Verdana', 12)
-# style.use('seaborn-whitegrid')
-tmp = None
 import queue
+import pandas as pd
+
+LARGE_FONT = ('Verdana', 12)
+BASIC_POINT_COLOUR = '#04B2D9'
+tmp = None
 
 
 class VisualizationApp(tk.Tk):
@@ -66,7 +69,6 @@ class VisualizationApp(tk.Tk):
         frame.tkraise()
 
 
-
 class StartPage(tk.Frame):
     '''
     Úvodné podstránka aplikácie, bude obsahovať tlačidlá na načítanie štruktúry neurónovej siete a bodov zo súboru.
@@ -82,6 +84,19 @@ class StartPage(tk.Frame):
         button3.pack()
 
 
+def load_model():
+    return tk.filedialog.askopenfilename(initialdir=".",title = "Select file",filetypes = (("Keras model","*.h5"),))
+
+
+def load_input():
+    return tk.filedialog.askopenfilename(initialdir=".", title="Select file", filetypes=(("Input data", "*.txt"),))
+
+
+def save_model():
+    return tk.filedialog.asksaveasfilename(initialdir=".", title="Select file",
+                                          filetypes=(("Keras model", "*.h5"), ("all files", "*.*")))
+
+
 class GraphPage(tk.Frame):
     def __init__(self, parent, controller):
         '''
@@ -92,13 +107,50 @@ class GraphPage(tk.Frame):
         :param parent: nadradený tkinter Widget
         '''
         tk.Frame.__init__(self, parent)
-        label = tk.Label(self, text='Graph Page', font=LARGE_FONT)
-        label.pack()
+        # label = tk.Label(self, text='Graph Page', font=LARGE_FONT)
+        # label.pack()
         self.__logic_layer = GraphLogicLayer(self)
-        button1 = ttk.Button(self, text='Back to home',
-                             command=lambda: controller.show_frame(StartPage))
-        button1.pack()
+        self.__keras_model = None
+        wrapper = tk.Frame(self)
+        wrapper.pack(fill='x')
+        # button1 = ttk.Button(self, text='Back to home',
+        #                      command=lambda: controller.show_frame(StartPage))
+        # button1.pack()
+        open_model_btn = ttk.Button(wrapper, text='Open model', command=self.open_model)
+        open_model_btn.pack(side='left')
+        load_points_btn = ttk.Button(wrapper, text='Load points', command=self.load_points)
+        load_points_btn.pack(side='left')
+        save_model_btn = ttk.Button(wrapper, text='Save model', command=self.save_model)
+        save_model_btn.pack(side='right')
+        self.__information_label = tk.Label(wrapper, text='Load keras model!', fg='orange')
+        self.__information_label.pack(side='left')
 
+    def open_model(self):
+        file_path = load_model()
+        if file_path != '':
+            self.__keras_model = keras.models.load_model(file_path)
+            self.__logic_layer.initialize(self.__keras_model)
+            self.__information_label.pack_forget()
+
+    def load_points(self):
+        if self.__keras_model is not None:
+            file_path = load_input()
+            if file_path != '':
+                error_message = self.__logic_layer.load_points(file_path)
+                if error_message is not None:
+                    self.__information_label.configure(text=error_message, fg='red')
+                    self.__information_label.pack(side='left')
+                else:
+                    self.__information_label.pack_forget()
+        else:
+            self.__information_label.configure(text='You have to load model first!', fg='red')
+            self.__information_label.pack(side='left')
+
+    def save_model(self):
+        if self.__keras_model is not None:
+            file_path = save_model()
+            if file_path != '':
+                self.__keras_model.save(file_path + '.h5')
 
 class GraphLogicLayer:
     def __init__(self, parent):
@@ -132,7 +184,7 @@ class GraphLogicLayer:
         # second DIM is layer  third are cords
         self.__number_of_layers = 0
 
-        self.__input_data = []
+        self.__input_data = None
 
         self.__keras_neural_layers = []
 
@@ -150,10 +202,13 @@ class GraphLogicLayer:
 
         self.__monitoring_thread = None
 
+        self.__points_colour = []
+
+        self.__points_config = {}
+
         self.__main_graph_frame.pack(side='bottom', fill='both', expand=True)
 
-        model = keras.models.load_model('modelik.h5')
-        self.initialize(model)
+        #self.initialize(keras.models.load_model('modelik.h5'))
 
     def initialize(self, model: keras.Model):
         '''
@@ -171,6 +226,7 @@ class GraphLogicLayer:
         self.__condition_var.release()
 
         self.__polygon_cords = None
+        self.__input_data = None
 
         self.__keras_model = model
 
@@ -178,46 +234,31 @@ class GraphLogicLayer:
 
         self.__keras_neural_layers = []
 
+        self.__points_config = {}
+
+        number_of_inputs = self.__keras_model.layers[0].input_shape[1]
+        # points_colour = []
+        # points_label = []
+        #
+        # for point in range(4):
+        #     self.__input_data.append([])
+        #     for cord in range(number_of_inputs):
+        #         self.__input_data[point].append(point + cord)
+        #     points_colour.append(BASIC_POINT_COLOUR)
+        #     points_label.append(point)
+
+        self.__points_config['colour'] = []
+        self.__points_config['label'] = []
+        self.__points_config['active_labels'] = []
+
         for i in range(self.__number_of_layers):
             neural_layer = NeuralLayer(self, self.__keras_model.layers[i], i)
-            neural_layer.initialize()
+            neural_layer.initialize(self.__points_config)
             self.__keras_neural_layers.append(neural_layer)
 
         # Vytvorí v rámci listu vytvorí, ďalšie listy, ktorých počet predstavuje jednotlivé vrstvy a ich poradie.
         # Pre jednotlivé vrstvy vygeneruje ďalšie listy, ktorých počet sa rovná počtu súradníc na vykreslenie daného
         # bodu.
-
-        self.__input_data = []
-
-        number_of_inputs = self.__keras_model.layers[0].input_shape[1]
-
-        for point in range(4):
-            self.__input_data.append([])
-            for cord in range(number_of_inputs):
-                self.__input_data[point].append(point + cord)
-
-        self.__input_data = np.array(self.__input_data)
-
-        self.__keras_neural_layers[0].point_cords = self.get_activation_for_layer(self.__input_data, 0).transpose()
-
-        if 1 < number_of_inputs < 4:
-            if number_of_inputs == 3:
-                polygon = Polygon([0, 0, 0], [10, 10, 10], [5, 5, 5])
-            elif number_of_inputs == 2:
-                polygon = Polygon([0, 0], [10, 10], [5, 5, 5])
-
-            polygon_peak_cords = np.array(polygon.Peaks)
-
-            edges_tuples = np.array(polygon.Edges)
-
-            self.__polygon_cords = []
-
-            self.__polygon_cords.append(polygon_peak_cords[:,edges_tuples[:,0]].transpose())
-
-            self.__polygon_cords.append(polygon_peak_cords[:,edges_tuples[:,1]].transpose())
-
-            for layer in self.__keras_neural_layers:
-                layer.possible_polygon = True
 
         self.__active_layers = []
 
@@ -240,12 +281,11 @@ class GraphLogicLayer:
         # jedno vlakno 0.7328296000000023 s
         # viac vlakien rychlejsie o 100ms
         # prva vrstva, nie je potrebne pocitat, zobrazit len input
-        #print('pocitam')
+        # print('pocitam')
         threads = []
         start = time.perf_counter()
         for layer_number in self.__active_layers:
             if layer_number > starting_layer:
-                #self.set_points_for_layer(layer_number)
                 t = threading.Thread(target=self.set_points_for_layer, args=(layer_number,))
                 t.start()
                 threads.append(t)
@@ -263,8 +303,9 @@ class GraphLogicLayer:
             return intermediate_layer_mode.predict(input_points)
 
     def set_points_for_layer(self, layer_number):
-        self.__keras_neural_layers[layer_number].point_cords = self.get_activation_for_layer(self.__input_data,
-                                                                                             layer_number).transpose()
+        if self.__input_data is not None:
+            self.__keras_neural_layers[layer_number].point_cords = self.get_activation_for_layer(self.__input_data,
+                                                                                                 layer_number).transpose()
         if self.__keras_neural_layers[layer_number].calculate_polygon:
             self.set_polygon_cords(layer_number)
 
@@ -305,28 +346,66 @@ class GraphLogicLayer:
         while self.__is_running:
             self.__condition_var.acquire()
             while not self.__changed_layer_queue.is_empty():
-                print('cakam')
                 self.__condition_var.wait()
                 if not self.__is_running:
                     self.__condition_var.release()
-                    print('Vlakno konci')
                     return
             if not self.__is_running:
                 self.__condition_var.release()
-                print('Vlakno konci')
                 return
-            tmp = self.__changed_layer_queue.copy()
+            actual_changed = self.__changed_layer_queue.copy()
             self.__changed_layer_queue.clear()
             self.__condition_var.release()
-            min = self.__number_of_layers
-            for layer_number in tmp:
-                if layer_number < min:
-                    min = layer_number
+            starting_layer_number = self.__number_of_layers
+            for layer_number in actual_changed:
+                if layer_number < starting_layer_number:
+                    starting_layer_number = layer_number
                 layer = self.__keras_neural_layers[layer_number]
                 self.set_layer_weights_and_biases(layer_number, layer.layer_weights, layer.layer_biases)
-            self.recalculate_cords(min)
-            self.broadcast_changes(min)
-            #time.sleep(0.05)
+            self.recalculate_cords(starting_layer_number)
+            self.broadcast_changes(starting_layer_number)
+            # time.sleep(0.05)
+
+    def load_points(self, file_path: str):
+        data = pd.read_csv(file_path, sep=' ', header=None)
+        number_of_inputs = self.__keras_model.layers[0].input_shape[1]
+        points_colour = self.__points_config['colour']
+        points_label = self.__points_config['label']
+
+        points_label[:] = data.iloc[:,-1].tolist()
+        data = data.iloc[:, 0:-1]
+        if len(data.columns) == number_of_inputs:
+            self.__input_data = data.to_numpy()
+            for _ in range(len(self.__input_data)):
+                points_colour.append(BASIC_POINT_COLOUR)
+
+            if 1 < number_of_inputs < 4:
+                minimal_cord = np.min(self.__input_data[:,:number_of_inputs], axis=0).tolist()
+                maximal_cord = np.max(self.__input_data[:,:number_of_inputs], axis=0).tolist()
+                if number_of_inputs == 3:
+                    polygon = Polygon(minimal_cord, maximal_cord, [5, 5, 5])
+                elif number_of_inputs == 2:
+                    polygon = Polygon(minimal_cord, maximal_cord, [5, 5, 5])
+
+                polygon_peak_cords = np.array(polygon.Peaks)
+
+                edges_tuples = np.array(polygon.Edges)
+
+                self.__polygon_cords = []
+
+                self.__polygon_cords.append(polygon_peak_cords[:, edges_tuples[:, 0]].transpose())
+
+                self.__polygon_cords.append(polygon_peak_cords[:, edges_tuples[:, 1]].transpose())
+
+                for layer in self.__keras_neural_layers:
+                    layer.possible_polygon = True
+
+            self.recalculate_cords(-1)
+            self.broadcast_changes(-1)
+            return None
+        else:
+            return 'Diffrent input point dimension!'
+
 
     def __del__(self):
         self.__is_running = False
@@ -472,7 +551,8 @@ class MainGraphFrame(tk.LabelFrame):
         if len(self.__active_layers) < self.__number_of_layers:
             self.__add_graph_list_frame.pack(side='right', fill='y', expand=True)
 
-        self.show_layer((0, 'dense'))
+        first_layer_tuple = (self.__neural_layers[0].layer_number, self.__neural_layers[0].layer_name)
+        self.show_layer(first_layer_tuple)
 
     def show_layer(self, layer_tuple: tuple):
         """
@@ -628,7 +708,8 @@ class InputDataFrame(tk.LabelFrame):
 
     def on_show_polygon_check(self):
         if self.__changed_config:
-            self.__changed_config['show_polygon'] = self.__active_layer.calculate_polygon = self.__show_polygon_value.get()
+            self.__changed_config[
+                'show_polygon'] = self.__active_layer.calculate_polygon = self.__show_polygon_value.get()
             if self.__changed_config['show_polygon']:
                 self.__active_layer.set_polygon_cords()
             self.__active_layer.use_config()
@@ -813,17 +894,18 @@ class NeuralLayer:
         self.__used_cords = []
         self.__axis_labels = []
 
+        self.__points_colour = None
+
+        self.__points_label = None
+
         self.__visible = False
         self.__weights_changed = False
-
-        self.th = None
-
 
     def pack(self, *args, **kwargs):
         if self.__visible:
             self.__layer_wrapper.pack(*args, **kwargs)
 
-    def initialize(self):
+    def initialize(self, points_config):
         '''
         Parametre
         --------
@@ -838,10 +920,11 @@ class NeuralLayer:
 
         self.__layer_config = {}
         self.__computation_in_process = False
-        self.__point_cords = [[] for x in range(self.__number_of_dimension)]
-
+        self.__point_cords = [[] for _ in range(self.__number_of_dimension)]
+        
         self.__displayed_lines_cords = []
-        # self.__shared_polygon_cords_tuples = shared_polygon_cords
+
+        self.__points_config = points_config
 
         # Počet súradníc ktoré sa majú zobraziť určíme ako menšie z dvojice čísel 3 a počet dimenzií, pretože max počet,
         # ktorý bude možno zobraziť je max 3
@@ -914,19 +997,19 @@ class NeuralLayer:
         self.__layer_options_container = tk.Frame(self.__layer_wrapper)
         self.__layer_options_container.pack(side='top', fill='x')
 
-        self.__options_button = ttk.Button(self.__layer_options_container, command=lambda: show_options_command(self.__layer_number),
+        self.__options_button = ttk.Button(self.__layer_options_container,
+                                           command=lambda: show_options_command(self.__layer_number),
                                            text='Options')
         self.__options_button.pack(side='left')
-        self.__hide_button = ttk.Button(self.__layer_options_container, command=lambda: hide_command(self.__layer_number), text='Hide')
+        self.__hide_button = ttk.Button(self.__layer_options_container,
+                                        command=lambda: hide_command(self.__layer_number), text='Hide')
         self.__hide_button.pack(side='right')
 
         self.__graph_frame = GraphFrame(self, self.__layer_wrapper, *args, **kwargs)
         self.__graph_frame.pack()
 
-        number_of_cords = min(3, self.__number_of_dimension)
-
-        self.__graph_frame.initialize(self, number_of_cords, self.__layer_name, self.__displayed_cords,
-                                      self.__layer_weights, self.__layer_biases, self.__displayed_lines_cords)
+        self.__graph_frame.initialize(self, self.__layer_name, self.__displayed_cords, self.__points_config,
+                                      self.__layer_weights, self.__layer_biases)
         self.__graph_frame.pack(fill='both', expand=True)
 
         self.__visible = True
@@ -941,20 +1024,8 @@ class NeuralLayer:
         self.__logic_layer.set_polygon_cords(self.__layer_number)
         self.apply_changes()
 
-    def reset_computation(self):
-        print('reset')
-        self.__logic_layer.set_layer_weights_and_biases(self.__layer_number, self.__layer_weights, self.__layer_biases)
-        if self.__weights_changed:
-            print(threading.active_count())
-            self.__weights_changed = False
-            self.__logic_layer.recalculate_cords(self.__layer_number)
-            self.__logic_layer.broadcast_changes(self.__layer_number + 1)
-            time.sleep(0.1)
-            self.reset_computation()
-        else:
-            self.__logic_layer.recalculate_cords(self.__layer_number)
-            self.__logic_layer.broadcast_changes(self.__layer_number + 1)
-            self.__computation_in_process = False
+    def require_change_broadcast(self):
+        self.__logic_layer.broadcast_changes(-1)
 
     def use_config(self):
         if self.__visible:
@@ -967,10 +1038,6 @@ class NeuralLayer:
     def __del__(self):
         print('neural layer destroyed')
 
-    def join_thread(self):
-        if self.th is not None:
-            self.th.join()
-
     @property
     def layer_name(self):
         return self.__layer_name
@@ -979,6 +1046,14 @@ class NeuralLayer:
     def layer_name(self, name):
         self.__layer_config['layer_name'] = name
         self.__layer_name = name
+
+    @property
+    def layer_number(self):
+        return self.__layer_number
+
+    @layer_number.setter
+    def layer_number(self, new_value):
+        self.__layer_number = new_value
 
     @property
     def config(self):
@@ -1004,7 +1079,6 @@ class NeuralLayer:
     def possible_polygon(self, value):
         self.__layer_config['possible_polygon'] = value
 
-
     @polygon_cords_tuples.setter
     def polygon_cords_tuples(self, new_cords_tuples):
         self.__polygon_cords_tuples = new_cords_tuples
@@ -1013,6 +1087,7 @@ class NeuralLayer:
         else:
             self.__layer_config['possible_polygon'] = False
             self.__displayed_lines_cords = None
+
     @property
     def layer_weights(self):
         return self.__layer_weights
@@ -1028,6 +1103,15 @@ class NeuralLayer:
     @calculate_polygon.setter
     def calculate_polygon(self, value):
         self.__calculate_polygon = value
+
+    @property
+    def point_colour(self):
+        return self.__points_colour
+
+    @point_colour.setter
+    def point_colour(self, new_value):
+        self.__points_colour = new_value
+
 
 class GraphFrame(tk.LabelFrame):
     def __init__(self, neural_layer: NeuralLayer, parent, *args, **kwargs):
@@ -1052,10 +1136,10 @@ class GraphFrame(tk.LabelFrame):
         self.__graph = PlotingFrame(self, self)
         self.__weight_controller = LayerWeightControllerFrame(self, self)
 
-    def initialize(self, neuralLayer: int, numOfDimensions: int, layer_name: str, pointCords: list, layer_weights: list,
-                   layerBias: list, shared_polygon_layer_cords):
+    def initialize(self, neuralLayer: int, layer_name: str, pointCords: list, points_config: dict,
+                   layer_weights: list, layerBias: list):
         self.__neural_layer = neuralLayer
-        self.__graph.initialize(pointCords, layer_name)
+        self.__graph.initialize(pointCords, points_config, layer_name)
         self.__weight_controller.initialize(layer_weights, layerBias)
 
         self.__graph.pack(side=tk.TOP)
@@ -1100,8 +1184,12 @@ class GraphFrame(tk.LabelFrame):
     def plotting_frame(self):
         return self.__graph
 
+    def require_graphs_redraw(self):
+        self.__neural_layer.require_change_broadcast()
+
+
 class PlotingFrame:
-    def __init__(self, parent, main_graph_frame, *args, **kwargs):
+    def __init__(self, parent, graph_frame, *args, **kwargs):
         '''
         Popis
         --------
@@ -1135,13 +1223,20 @@ class PlotingFrame:
         self.__number_of_dim = -1
         self.__graph_title = 'Graf'
         self.__graph_labels = ['Label X', 'Label Y', 'Label Z']
-        self.__main_graph_frame = main_graph_frame
+        self.__parent_controller = graph_frame
+
+        self.__points_config = None
+        self.__points_colour = None
+        self.__points_label = None
+        self.__active_points_label = None
+
 
         self.__graph_container = tk.LabelFrame(self.__plot_wrapper_frame, relief=tk.FLAT)
 
         self.__figure = Figure(figsize=(4, 4), dpi=100)
         self.__canvas = FigureCanvasTkAgg(self.__figure, self.__graph_container)
         self.__canvas.draw()
+        self.__canvas.mpl_connect('button_press_event', self.on_mouse_double_click)
         self.__axis = None
         self.__draw_3D = False
 
@@ -1161,12 +1256,56 @@ class PlotingFrame:
         self.__locked_view = True
         self.__ani = animation.FuncAnimation(self.__figure, self.update_changed, interval=105)
 
-    def initialize(self, dislplayed_cords, layerName: str):
+    def initialize(self, displayed_cords, points_config: dict, layer_name: str):
         self.__change_in_progress = False
-        self.__cords = dislplayed_cords
+        self.__cords = displayed_cords
         self.__graph_container.pack(side=tk.TOP)
-        self.__graph_title = layerName
-        self.set_graph_dimension(len(dislplayed_cords))
+        self.__graph_title = layer_name
+        self.__points_config = points_config
+        self.__points_colour = self.__points_config['colour']
+        self.__points_label = self.__points_config['label']
+        self.__active_points_label = self.__points_config['active_labels']
+        self.set_graph_dimension(len(displayed_cords))
+
+    def on_mouse_double_click(self, event):
+        if event.dblclick and event.button == 1:
+            for i in range(len(self.__points_colour)):
+                self.__points_colour[i] = BASIC_POINT_COLOUR
+            self.__active_points_label.clear()
+
+            nearest_x = 3
+            nearest_y = 3
+            closest_point = -1
+            number_of_points = len(self.__cords[0])
+            X_point_cords = self.__cords[0]
+            if len(self.__cords) > 1:
+                Y_point_cords = self.__cords[1]
+            else:
+                Y_point_cords = [0 for _ in range(number_of_points)]
+
+            if self.__draw_3D:
+                Z_point_cords = self.__cords[2]
+            # Rychlejsie pocita ale prehadzuje riadky, neviem to vyriesit
+            for point in range(number_of_points):
+                if self.__draw_3D:
+                    x_2d, y_2d, _ = proj3d.proj_transform(X_point_cords[point], Y_point_cords[point],
+                                                          Z_point_cords[point], self.__axis.get_proj())
+                    pts_display = self.__axis.transData.transform((x_2d, y_2d))
+                else:
+                    pts_display = self.__axis.transData.transform((X_point_cords[point], Y_point_cords[point]))
+
+                if math.fabs(event.x - pts_display[0]) < 3 and math.fabs(event.y - pts_display[1]) < 3:
+                    if nearest_x > math.fabs(event.x - pts_display[0]) and nearest_y > math.fabs(
+                            event.y - pts_display[1]):
+                        nearest_x = math.fabs(event.x - pts_display[0])
+                        nearest_y = math.fabs(event.y - pts_display[1])
+                        closest_point = point
+
+            if closest_point != -1:
+                self.__points_colour[closest_point] = '#F25D27'
+                if len(self.__points_label) > 0:
+                    self.__active_points_label.append((closest_point, self.__points_label[closest_point]))
+            self.__parent_controller.require_graphs_redraw()
 
     def change_graph_dimension(self):
         if self.__draw_3D:
@@ -1187,7 +1326,7 @@ class PlotingFrame:
         self.__changed = True
         if not self.__change_in_progress:
             if self.__ani is not None:
-                    self.__ani.event_source.start()
+                self.__ani.event_source.start()
 
     def redraw_graph(self):
         if self.__locked_view:
@@ -1198,36 +1337,48 @@ class PlotingFrame:
         self.__axis.clear()
         self.__axis.grid()
 
+        number_of_cords = len(self.__cords)
+
         if self.__draw_polygon:
-            if self.__number_of_dim >= 3:
-                for hrana in self.__line_cords_tuples:
-                    xs = hrana[0][0], hrana[1][0]
-                    ys = hrana[0][1], hrana[1][1]
-                    zs = hrana[0][2], hrana[1][2]
+            if self.__number_of_dim == 3:
+                for edge in self.__line_cords_tuples:
+                    xs = edge[0][0], edge[1][0]
+                    ys = edge[0][1], edge[1][1]
+                    zs = edge[0][2], edge[1][2]
                     line = plt3d.art3d.Line3D(xs, ys, zs, color='black', linewidth=1, alpha=0.3)
                     self.__axis.add_line(line)
             if self.__number_of_dim == 2:
-                for hrana in self.__line_cords_tuples:
-                    xs = hrana[0][0], hrana[1][0]
-                    ys = hrana[0][1], hrana[1][1]
-                    self.__axis.plot(xs, ys, linestyle='-', color='black', linewidth=1, alpha=0.5)
+                for edge in self.__line_cords_tuples:
+                    xs = edge[0][0], edge[1][0]
+                    if number_of_cords == 1:
+                        ys = 0, 0
+                    else:
+                        ys = edge[0][1], edge[1][1]
 
-        if self.__number_of_dim >= 3:
-            if len(self.__cords) > 2:
-                self.__axis.scatter(self.__cords[0], self.__cords[1], self.__cords[2])
-            else:
-                self.__axis.scatter(self.__cords[0], self.__cords[1])
-            self.__axis.set_zlabel(self.__graph_labels[2])
-        else:
-            if len(self.__cords) == 1:
-                zero_list = np.zeros(len(self.__cords[0]))
-                self.__axis.scatter(self.__cords[0], zero_list)
-            else:
-                self.__axis.scatter(self.__cords[0], self.__cords[1])
+                    self.__axis.plot(xs, ys, linestyle='-', color='black', linewidth=1, alpha=0.5)
+        x_axe_coords = self.__cords[0]
+
         self.__axis.set_title(self.__graph_title)
         self.__axis.set_xlabel(self.__graph_labels[0])
-        if len(self.__cords) != 1:
-            self.__axis.set_ylabel(self.__graph_labels[1])
+        if len(self.__cords[0]) == len(self.__points_colour):
+            if number_of_cords >= 2:
+                self.__axis.set_ylabel(self.__graph_labels[1])
+                y_axe_coords = self.__cords[1]
+                if number_of_cords > 2:
+                    z_axe_coords = self.__cords[2]
+                    if self.__draw_3D:
+                        self.__axis.set_zlabel(self.__graph_labels[2])
+            else:
+                y_axe_coords = np.zeros_like(x_axe_coords)
+
+            if self.__draw_3D:
+                self.__axis.scatter(x_axe_coords, y_axe_coords, z_axe_coords, c=self.__points_colour)
+                for point in self.__active_points_label:
+                    self.__axis.text(x_axe_coords[point[0]], y_axe_coords[point[0]], z_axe_coords[point[0]], point[1])
+            else:
+                self.__axis.scatter(x_axe_coords, y_axe_coords, c=self.__points_colour)
+                for point in self.__active_points_label:
+                    self.__axis.annotate(point[1], (x_axe_coords[point[0]], y_axe_coords[point[0]]))
 
         if self.__locked_view:
             self.__axis.set_xlim(tmpX)
@@ -1255,7 +1406,6 @@ class PlotingFrame:
             self.__axis = self.__figure.add_subplot(111)
             self.__number_of_dim = 2
             self.__graph_container.pack()
-            text = 'Make 3D'
             for item in self.__toolbar.winfo_children():
                 if not isinstance(item, tk.Label):
                     item.pack(side='left')
@@ -1265,6 +1415,7 @@ class PlotingFrame:
 
     def clear(self):
         print('Cistime plott')
+        self.__ani.event_source.stop()
         self.__toolbar.destroy()
         self.__canvas.get_tk_widget().destroy()
         self.__plot_wrapper_frame.destroy()
@@ -1272,6 +1423,7 @@ class PlotingFrame:
         self.__graph_container.destroy()
         self.__figure.clf()
         self.__axis.cla()
+        self.__parent_controller = None
         self.__graph_container = None
         self.__graph_labels = None
         self.__graph_title = None
@@ -1331,6 +1483,7 @@ class PlotingFrame:
                 self.set_graph_dimension(3)
             else:
                 self.set_graph_dimension(2)
+
     @property
     def points_cords(self):
         return self.__cords
@@ -1342,9 +1495,18 @@ class PlotingFrame:
     @property
     def line_tuples(self):
         return self.__line_cords_tuples
+
     @line_tuples.setter
     def line_tuples(self, new_tuples):
         self.__line_cords_tuples = new_tuples
+
+    @property
+    def point_colour(self):
+        return self.__points_colour
+
+    @point_colour.setter
+    def point_colour(self, new_value):
+        self.__points_colour = new_value
 
 
 class LayerWeightControllerFrame:
@@ -1524,6 +1686,7 @@ class Polygon:
                     if y != new_divide[1]:
                         self.Edges.append([pointNumber, pointNumber + (new_divide[0] + 1)])
 
+
 class QueueSet:
     def __init__(self):
         self.queue = queue.Queue()
@@ -1567,50 +1730,24 @@ class QueueSet:
         return len(self.set)
 
 
-# print(threading.active_count())
 app = VisualizationApp()
 app.mainloop()
-# print(threading.active_count())
-# print(threading.enumerate())
-# print('koniec')
 
-
-# tmp = QueueSet()
-# print(tmp.is_empty())
-# print(len(tmp))
-# tmp.add(1)
-# tmp.add(1)
-# print(tmp.is_empty())
-# print(len(tmp))
-# tmp.get()
+# def ask_open():
+#     tmp = tk.filedialog.askopenfilename(initialdir = ".",title = "Select file",filetypes = (("jpeg files","*.h5"),("all files","*.*")))
+#     print(tmp)
 #
-# print(tmp.is_empty())
-# print(len(tmp))
-# run = True
-# def fun():
-#     for i in range(10000000):
-#         if run:
-#             print(i)
+# def save():
+#     tmp = tk.filedialog.asksaveasfilename(initialdir=".", title="Select file",
+#                                                  filetypes=(("jpeg files", "*.h5"), ("all files", "*.*")))
+#     print(tmp)
 #
-# t = threading.Thread(target=fun)
-# t.start()
-# time.sleep(1)
-# run = False
-# threads = []
-# start = time.perf_counter()
-# def do_something(seconds):
-#     print(f'Spanie {seconds} sekund')
-#     time.sleep(seconds)
-#     print('hotove spanie')
+# root = tk.Tk()
+# btn = tk.Button(root, text='Open', command=ask_open)
+# btn.pack()
 #
-# for _ in range(10):
-#     t = threading.Thread(target=do_something, args=[1.5])
-#     t.start()
-#     threads.append(t)
+# btn = tk.Button(root, text='Save', command=save)
+# btn.pack()
 #
-# for thread in threads:
-#     thread.join()
+# root.mainloop()
 #
-# finish = time.perf_counter()
-#
-# print(f'Finished in {round(finish-start, 2)} seconds')
