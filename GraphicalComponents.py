@@ -131,7 +131,7 @@ class ComboboxAddRemoveFrame(tk.LabelFrame):
                     number_of_copy += 1
                     continue
                 else:
-                    itemName = new_name.format(number_of_copy)
+                    item_name = new_name.format(number_of_copy)
                     break
         return item_name
 
@@ -197,11 +197,13 @@ class ComboboxAddRemoveFrame(tk.LabelFrame):
     def __del__(self):
         print('mazanie combobox')
 
+
 class RewritableLabel(tk.Frame):
-    def __init__(self, parent, id, enter_command,label_text, variable_text='',*args, **kwargs):
+    def __init__(self, parent, id, enter_command, label_text, variable_text='',*args, **kwargs):
         tk.Frame.__init__(self, parent, *args, **kwargs)
         self.__id = id
-        self.__name_label = tk.Label(self, text=label_text)
+        self.__name_variable = label_text + ' '
+        self.__name_label = tk.Label(self, text=self.__name_variable)
         self.__name_label.pack(side='left')
         self.__changeable_label_frame = tk.Frame(self)
         self.__changeable_label_frame.pack(side='left')
@@ -213,12 +215,14 @@ class RewritableLabel(tk.Frame):
         self.__enter_function = enter_command
         self.__entry.bind('<Return>', self.on_enter)
         self.__entry.bind('<Escape>', self.show_variable_label)
+        self.__mark_changed = False
 
     def on_enter(self, event):
         self.__enter_function(self.__id, self.__entry.get())
 
     def set_label_name(self, name):
-        self.__name_label.configure(text=name)
+        self.__name_variable = name + ' '
+        self.__name_label.configure(text=self.__name_variable)
 
     def show_entry(self, event):
         self.__variable_label.pack_forget()
@@ -239,6 +243,15 @@ class RewritableLabel(tk.Frame):
     def set_entry_width(self, new_width):
         self.__entry.configure(width=new_width)
 
+    def get_variable_value(self):
+        return self.__variable_value
+
+    def set_mark_changed(self, value):
+        self.__mark_changed = value
+        if self.__mark_changed:
+            self.__name_label.configure(text=self.__name_variable[:-1] + "*")
+        else:
+            self.__name_label.configure(text=self.__name_variable)
 
 class ClickableSlider(tk.LabelFrame):
     def __init__(self, parent, slider_id, hide_command, *args, **kwargs):
