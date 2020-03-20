@@ -216,6 +216,7 @@ class RewritableLabel(tk.Frame):
         self.__entry.bind('<Return>', self.on_enter)
         self.__entry.bind('<Escape>', self.show_variable_label)
         self.__mark_changed = False
+        self.__variable_value = variable_text
 
     def on_enter(self, event):
         self.__enter_function(self.__id, self.__entry.get())
@@ -235,6 +236,7 @@ class RewritableLabel(tk.Frame):
 
     def set_variable_label(self, value):
         self.__variable_label.configure(text=value)
+        self.__variable_value = value
 
     def show_variable_label(self, event=None):
         self.__entry.pack_forget()

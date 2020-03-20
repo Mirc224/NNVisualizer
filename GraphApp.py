@@ -338,7 +338,7 @@ class GraphLogicLayer:
         for layer_number in self.__active_layers:
             if layer_number > start_layer:
                 self.__keras_neural_layers[layer_number].apply_changes()
-        self.__main_graph_frame.update_active_options_layer()
+        self.__main_graph_frame.update_active_options_layer(start_layer)
 
     def set_layer_weights_and_biases(self, layer_number, layer_weights, layer_biases):
         # Nastvaenie hodnôt a biasu priamo do keras modelu.
@@ -646,13 +646,13 @@ class MainGraphFrame(tk.LabelFrame):
     def apply_changes_on_options_frame(self):
         self.__options_frame.update_selected_config()
 
-    def update_active_options_layer(self):
-        self.__options_frame.update_active_options_layer()
+    def update_active_options_layer(self, start_layer):
+        self.__options_frame.update_active_options_layer(start_layer)
 
 
 class OptionsFrame(tk.LabelFrame):
     def __init__(self, parent, logicalLayer: GraphLogicLayer, *args, **kwargs):
-        '''
+        """"
         Popis
         --------
         Obsahuje ovladacie prvky pre jednotlivé vrstvy. V rámci nej je možne navoliť zobrazované súradnice ako aj
@@ -662,7 +662,7 @@ class OptionsFrame(tk.LabelFrame):
 
         :param parent: nadradený tkinter Widget
         :param logicalLayer: odkaz na logickú vrstvu grafu
-        '''
+        """
         tk.LabelFrame.__init__(self, parent, width=285, *args, **kwargs)
         self.__graph_logic = logicalLayer
         self.__layer_number_dimension = 3
@@ -722,11 +722,7 @@ class OptionsFrame(tk.LabelFrame):
         self.__tSNE_method_radio.pack(side='left')
         self.__tSNE_method_radio.deselect()
 
-        self.__PCA_options_frame = tk.LabelFrame(self.__dim_reduction_options_frame, text='PCA options')
-        self.__possible_PCA_cords = tk.Label(self.__PCA_options_frame)
-        self.__possible_PCA_cords.pack(fill='x')
-
-        self.__PCA_computation_info_frame = tk.LabelFrame(self.__PCA_options_frame, text='PCA information')
+        self.__PCA_computation_info_frame = tk.LabelFrame(self.__dim_reduction_options_frame, text='PCA information')
 
         self.__PC_variance_expaination_frame = tk.LabelFrame(self.__PCA_computation_info_frame, border=0,
                                                              text='PC variance explanation')
@@ -740,12 +736,24 @@ class OptionsFrame(tk.LabelFrame):
         self.__PC_loading_scores_list_box = tk.Listbox(self.__PC_loading_scores_frame, highlightthickness=0)
         self.__PC_loading_scores_list_box.pack(fill='both')
 
+        self.__tSNE_parameter_choose_frame = tk.LabelFrame(self.__dim_reduction_options_frame, text='t-SNE parameters')
+        self.__tSNE_parameters_dict = dict()
+
+        t_sne_parameter_id_list = ['n_components', 'perplexity', 'early_exaggeration', 'learning_rate', 'n_iter']
+        t_sne_parameter_label = ['Number of components:', 'Perplexity:', 'Early exaggeration:', 'Learning rate:',
+                                 'Number of iteration:']
+
+        for i in range(len(t_sne_parameter_id_list)):
+            t_sne_parameter = RewritableLabel(self.__tSNE_parameter_choose_frame, t_sne_parameter_id_list[i],
+                                              self.validate_t_sne_entry, t_sne_parameter_label[i], '-')
+            t_sne_parameter.pack(fill='x')
+            self.__tSNE_parameters_dict[t_sne_parameter_id_list[i]] = t_sne_parameter
+
         self.__apply_method_btn = tk.Button(self.__dim_reduction_options_frame, text='Use method', command=self.use_selected_method)
         self.__apply_method_btn.pack(side='bottom')
 
         # Vytvorenie komponentov. Na konci v rámci jedného cyklu aby sa znížila duplicita kódu.
         label_name = ['Label X', 'Label Y', 'Label Z']
-        axe_names = ['X', 'Y', 'Z']
         for i in range(3):
             rewritable_label = RewritableLabel(self.__cords_choose_labels_frame, i, self.validate_cord_entry,
                                                'Suradnica {}:'.format(i), '-')
@@ -755,11 +763,6 @@ class OptionsFrame(tk.LabelFrame):
             rewritable_label = RewritableLabel(self.__label_choose_labels_frame, i, self.validate_label_entry,
                                                '{} axe:'.format(label_name[i]), label_name[i])
             self.__labels_entries_list.append(rewritable_label)
-
-            rewritable_label = RewritableLabel(self.__PCA_options_frame, i, self.validate_pca_entry,
-                                               'PC used on axe {}:'.format(axe_names[i]), '-')
-            self.__pca_label_entries_list.append(rewritable_label)
-            rewritable_label.set_entry_width(3)
 
         self.__active_layer = None
         self.__changed_config = None
@@ -771,15 +774,8 @@ class OptionsFrame(tk.LabelFrame):
 
     def initialize_cords_choose_option(self):
         self.__cords_choose_labels_frame.pack(fill='x')
-        self.__possible_cords_label.configure(text='Possible cords: 0-{}'.format(self.__changed_config['number_of_dimensions'] - 1))
-        self.__possible_cords_label.pack()
-
-        number_of_possible_dim = self.__changed_config['max_visible_dim']
-
-        for i in range(number_of_possible_dim):
-            cord_entry = self.__cords_entries_list[i]
-            cord_entry.set_variable_label(self.__changed_config['visible_cords'][i])
-            cord_entry.pack(fill='x')
+        self.__possible_cords_label.pack(side=tk.TOP, fill='x', expand=True)
+        self.set_cords_entries_according_chosen_method()
 
     def initialize_label_options(self):
         self.__label_choose_labels_frame.pack(fill='x')
@@ -815,62 +811,47 @@ class OptionsFrame(tk.LabelFrame):
             self.__show_polygon_check.grid(row=3, column=0, sticky='w')
 
     def initialize_dimension_reduction_options(self):
-        if self.__changed_config['possible_dim_reduction']:
-            self.__PC_loading_scores_list_box.delete(0, tk.END)
-            self.__PC_variance_explanation_list_box.delete(0, tk.END)
             self.__dim_reduction_options_frame.pack(side='bottom', fill='x')
-            self.__possible_PCA_cords.configure(text='Possible PCs: 1-{}'.format(self.__changed_config['number_of_dimensions']))
-            self.set_actual_method_lable(self.__changed_config['used_method'])
+            self.set_actual_method_lable(self.__currently_used_method)
             config_selected_method = self.__changed_config['config_selected_method']
 
             self.__no_method_radio.deselect()
             self.__PCA_method_radio.deselect()
             self.__tSNE_method_radio.deselect()
+
             if config_selected_method == 'No method':
                 self.__no_method_radio.select()
             elif config_selected_method == 'PCA':
                 self.__PCA_method_radio.select()
             elif config_selected_method == 't-SNE':
                 self.__tSNE_method_radio.select()
-            self.initialize_PCA_options()
-            actual_method = self.__changed_config['used_method']
-            if actual_method == 'PCA':
+
+            if self.__currently_used_method == 'PCA':
                 self.update_PCA_information()
-                self.__PCA_computation_info_frame.pack(side='bottom', fill='x')
+
             self.on_method_change()
 
     def initialize_with_layer_config(self, neural_layer, config):
-        self.hide_all()
         self.__active_layer = neural_layer
         self.__changed_config = config
         self.update_selected_config()
 
-    def initialize_PCA_options(self):
-        pca_config = self.__changed_config['PCA_config']
-        for i in range(self.__changed_config['max_visible_dim']):
-            pca_entry = self.__pca_label_entries_list[i]
-            pca_entry.set_variable_label(pca_config['options_used_components'][i] + 1)
-            if pca_config['actual_used_components'][i] == pca_config['options_used_components'][i]:
-                pca_entry.set_mark_changed(False)
-            else:
-                pca_entry.set_mark_changed(True)
-            pca_entry.pack(fill='x')
-
-    def apply_PCA_options_if_changed(self):
-        changed = False
-        if self.__changed_config is not None:
-            pca_config = self.__changed_config['PCA_config']
-            options_used_components_list = pca_config['options_used_components']
-            actual_used_components_list = pca_config['actual_used_components']
-            possible_components = len(options_used_components_list)
-            for component_number in range(possible_components):
-                if actual_used_components_list[component_number] != options_used_components_list[component_number]:
-                    actual_used_components_list[component_number] = options_used_components_list[component_number]
-                    changed = True
-        return changed
+    # def apply_PCA_options_if_changed(self):
+    #     changed = False
+    #     if self.__changed_config is not None:
+    #         pca_config = self.__changed_config['PCA_config']
+    #         options_used_components_list = pca_config['options_used_components']
+    #         actual_used_components_list = pca_config['displayed_cords']
+    #         possible_components = len(options_used_components_list)
+    #         for component_number in range(possible_components):
+    #             if actual_used_components_list[component_number] != options_used_components_list[component_number]:
+    #                 actual_used_components_list[component_number] = options_used_components_list[component_number]
+    #                 changed = True
+    #     return changed
 
     def update_selected_config(self):
         if self.__active_layer is not None and self.__changed_config is not None:
+            self.__currently_used_method = self.__changed_config['used_method']
             self.hide_all()
             self.__layer_options_frame.pack(fill='x')
             self.__layer_name_label.configure(text=self.__changed_config['layer_name'])
@@ -882,6 +863,7 @@ class OptionsFrame(tk.LabelFrame):
             self.initialize_dimension_reduction_options()
 
     def update_PCA_information(self):
+        self.__PC_loading_scores_list_box.delete(0, tk.END)
         self.__PC_variance_explanation_list_box.delete(0, tk.END)
         variance_series = self.__changed_config['PCA_config']['percentage_variance']
         if variance_series is not None:
@@ -895,22 +877,22 @@ class OptionsFrame(tk.LabelFrame):
             for i, label in enumerate(sorted_indexes):
                 self.__PC_loading_scores_list_box.insert(i, '{}: {:.4f}'.format(label, round(loading_scores[label], 4)))
 
-    def update_active_options_layer(self):
+    def update_no_method_information(self):
+        self.__possible_cords_label.configure(text='Possible cords: 0-{}'.format(self.__changed_config['number_of_dimensions'] - 1))
+
+    def update_active_options_layer(self, start_layer=-1):
         if self.__active_layer is not None and self.__changed_config is not None:
             actual_method = self.__changed_config['used_method']
-            if actual_method == 'PCA':
+            if actual_method == 'PCA' and start_layer < self.__active_layer.layer_number:
                 self.update_PCA_information()
 
     def use_selected_method(self):
         if self.__active_layer is not None:
             method = self.__method_var.get()
             need_recalculation = False
-            if method == 'PCA':
-                need_recalculation = self.apply_PCA_options_if_changed()
-
             if method != self.__changed_config['used_method']:
                 need_recalculation = True
-                self.__changed_config['used_method'] = method
+                self.__changed_config['used_method'] = self.__currently_used_method = method
             if need_recalculation:
                 self.__changed_config['apply_changes'] = True
                 self.__active_layer.use_config()
@@ -919,15 +901,12 @@ class OptionsFrame(tk.LabelFrame):
                 # Hide all informations
                 self.hide_all_methods_information()
                 if method == 'PCA':
-                    print(self.__changed_config['PCA_config']['percentage_variance'])
                     self.update_PCA_information()
-                    self.__PCA_computation_info_frame.pack(side='bottom', fill='x')
+                    self.__PCA_computation_info_frame.pack(fill='x', expand=True)
+                else:
+                    self.__PCA_computation_info_frame.pack_forget()
                 self.set_actual_method_lable(method)
-                self.reset_changed_marks()
-
-    def reset_changed_marks(self):
-        for entry in self.__pca_label_entries_list:
-            entry.set_mark_changed(False)
+            self.set_cords_entries_according_chosen_method()
 
     def hide_all(self):
         self.__layer_options_frame.pack_forget()
@@ -939,7 +918,6 @@ class OptionsFrame(tk.LabelFrame):
 
     def hide_cords_choose_options(self):
         self.__cords_choose_labels_frame.pack_forget()
-        self.__possible_cords_label.pack_forget()
         for i in range(3):
             self.__cords_entries_list[i].pack_forget()
 
@@ -956,18 +934,11 @@ class OptionsFrame(tk.LabelFrame):
 
     def hide_dimension_reduction_options(self):
         self.__dim_reduction_options_frame.pack_forget()
-        self.hide_all_reduction_methods_options()
-
-    def hide_all_reduction_methods_options(self):
-        self.__dim_reduction_options_frame.pack_forget()
-        self.__PCA_options_frame.pack_forget()
-        for entry in self.__pca_label_entries_list:
-            entry.pack_forget()
-
         self.hide_all_methods_information()
 
     def hide_all_methods_information(self):
         self.__PCA_computation_info_frame.pack_forget()
+        self.__tSNE_parameter_choose_frame.pack_forget()
 
     def set_actual_method_lable(self, method_name):
         self.__actual_used_label.configure(text=f'Actual used: {method_name}')
@@ -977,11 +948,15 @@ class OptionsFrame(tk.LabelFrame):
             method = self.__method_var.get()
             self.__changed_config['config_selected_method'] = method
             if method == 'PCA':
-                self.__PCA_options_frame.pack(side='bottom', fill='x', expand=True)
+                if self.__changed_config['used_method'] == method:
+                    self.__PCA_computation_info_frame.pack(fill='x')
+                self.__tSNE_parameter_choose_frame.pack_forget()
             elif method == 't-SNE':
-                self.__PCA_options_frame.pack_forget()
+                self.__PCA_computation_info_frame.pack_forget()
+                self.__tSNE_parameter_choose_frame.pack(fill='x')
             else:
-                self.__PCA_options_frame.pack_forget()
+                self.__PCA_computation_info_frame.pack_forget()
+                self.__tSNE_parameter_choose_frame.pack_forget()
 
     def on_lock_view_check(self):
         if self.__changed_config:
@@ -1001,32 +976,32 @@ class OptionsFrame(tk.LabelFrame):
             self.__changed_config['draw_3d'] = self.__3d_graph.get()
             self.__active_layer.use_config()
 
-    def validate_pca_entry(self, id, value):
-        try:
-            pca_entry = self.__pca_label_entries_list[id]
-            if not (1 <= int(value) <= self.__changed_config['number_of_dimensions']):
-                pca_entry.set_entry_text('err')
-                return False
-            pca_entry.set_variable_label(value)
-            pca_entry.show_variable_label()
-            self.__changed_config['PCA_config']['options_used_components'][id] = int(value) - 1
-            if self.__changed_config['PCA_config']['actual_used_components'][id] == self.__changed_config['PCA_config']['options_used_components'][id]:
-                pca_entry.set_mark_changed(False)
-            else:
-                pca_entry.set_mark_changed(True)
-            return True
-        except ValueError:
-            self.__pca_label_entries_list[id].set_entry_text('err')
-            return False
+    def validate_t_sne_entry(self, id, value):
+        pass
 
     def validate_cord_entry(self, id, value):
         try:
-            if not (0 <= int(value) < self.__changed_config['number_of_dimensions']):
+            bottom_border = 0
+            top_border = 0
+            changed_cords = None
+            if self.__currently_used_method == 'No method':
+                bottom_border = 0
+                top_border = self.__changed_config['number_of_dimensions']
+                changed_cords = self.__changed_config['no_method_config']['displayed_cords']
+                new_value = int(value)
+            elif self.__currently_used_method == 'PCA':
+                bottom_border = 1
+                top_border = self.__changed_config['number_of_dimensions'] + 1
+                changed_cords = self.__changed_config['PCA_config']['displayed_cords']
+                new_value = int(value) - 1
+
+            if not (bottom_border <= int(value) < top_border):
                 self.__cords_entries_list[id].set_entry_text('err')
                 return False
+
             self.__cords_entries_list[id].set_variable_label(value)
             self.__cords_entries_list[id].show_variable_label()
-            self.__changed_config['visible_cords'][id] = int(value)
+            changed_cords[id] = int(new_value)
             self.__changed_config['apply_changes'] = True
             self.__active_layer.use_config()
             return True
@@ -1039,6 +1014,29 @@ class OptionsFrame(tk.LabelFrame):
         self.__labels_entries_list[id].show_variable_label()
         self.__changed_config['axis_labels'][id] = value
         self.__active_layer.use_config()
+
+    def set_cords_entries_according_chosen_method(self):
+        if self.__currently_used_method == 'No method':
+            entry_names = ['Axis X:', 'Axis Y:', 'Axis Z:']
+            cords_label_text = 'Possible cords: 0-{}'.format(self.__changed_config['number_of_dimensions']-1)
+            displayed_cords = self.__changed_config['no_method_config']['displayed_cords']
+            possible_cords = self.__changed_config['max_visible_dim']
+        elif self.__currently_used_method == 'PCA':
+            entry_names = ['PC axis X:', 'PC axis Y:', 'PC axis Z:']
+            cords_label_text = 'Possible PCs: 1-{}'.format(self.__changed_config['number_of_dimensions'])
+            possible_cords = self.__changed_config['max_visible_dim']
+            displayed_cords = self.__changed_config['PCA_config']['displayed_cords'].copy()
+            displayed_cords = np.array(displayed_cords) + 1
+
+        self.set_cords_entries(entry_names, cords_label_text, displayed_cords, possible_cords)
+
+    def set_cords_entries(self, entry_name, cords_label_text, displayed_cords, possible_cords):
+        self.__possible_cords_label.configure(text=cords_label_text)
+        for i in range(possible_cords):
+            cord_entry_rewritable_label = self.__cords_entries_list[i]
+            cord_entry_rewritable_label.set_label_name(entry_name[i])
+            cord_entry_rewritable_label.set_variable_label(displayed_cords[i])
+            cord_entry_rewritable_label.pack(fill='x', expand=True)
 
     @property
     def active_layer(self):
@@ -1089,7 +1087,6 @@ class NeuralLayer:
 
         self.__calculate_polygon = False
 
-        self.__displayed_lines_cords = None
         self.__polygon_cords_tuples = None
 
         self.__layer_config = {}
@@ -1099,7 +1096,6 @@ class NeuralLayer:
         self.__logic_layer = logicLayer
         self.__layer_number = layer_number
         self.__point_cords = np.array([])
-        self.__displayed_cords = []
         self.__used_cords = []
         self.__axis_labels = []
         self.__neuron_labels = []
@@ -1134,8 +1130,7 @@ class NeuralLayer:
         self.__layer_config = {}
         self.__computation_in_process = False
         self.__point_cords = np.array([[] for _ in range(self.__number_of_dimension)])
-        
-        self.__displayed_lines_cords = []
+
 
         self.__points_config = points_config
 
@@ -1147,13 +1142,13 @@ class NeuralLayer:
         self.__used_PCA_components = []
         self.__neuron_labels = []
         self.__pc_labels = []
+        self.__used_t_sne_components = []
 
         for i in range(self.__number_of_dimension):
             self.__neuron_labels.append(f'Neuron{i}')
             self.__pc_labels.append(f'PC{i+1}')
 
         for i in range(number_of_cords):
-            self.__displayed_cords.append([])
             self.__used_cords.append(i)
             self.__used_PCA_components.append(i)
             self.__axis_labels.append(axis_default_names[i])
@@ -1169,13 +1164,16 @@ class NeuralLayer:
             self.__layer_config['draw_3d'] = True
         else:
             self.__layer_config['draw_3d'] = False
-        self.__layer_config['possible_dim_reduction'] = True
-        if self.__layer_config['possible_dim_reduction']:
-            self.__layer_config['used_method'] = 'No method'
-            self.__layer_config['config_selected_method'] = 'No method'
-            pca_config = {'actual_used_components': self.__used_PCA_components, 'percentage_variance': None, 'largest_infulence': None,
-                          'options_used_components': self.__used_PCA_components.copy()}
+        self.__layer_config['used_method'] = 'No method'
+        self.__layer_config['config_selected_method'] = 'No method'
+        no_method_config = {'displayed_cords': self.__used_cords}
+        pca_config = {'displayed_cords': self.__used_PCA_components, 'percentage_variance': None, 'largest_infulence': None,
+                      'options_used_components': self.__used_PCA_components.copy()}
+        t_sne_config = {}
+
+        self.__layer_config['no_method_config'] = no_method_config
         self.__layer_config['PCA_config'] = pca_config
+        self.__layer_config['t_SNE_config'] = t_sne_config
 
         self.__layer_config['possible_polygon'] = False
         self.__layer_config['show_polygon'] = False
@@ -1197,8 +1195,8 @@ class NeuralLayer:
         self.__graph_frame.apply_changes()
 
     def apply_no_method(self):
-        for i, used_cord in enumerate(self.__used_cords):
-            self.__displayed_cords[i] = self.__point_cords[used_cord]
+        used_cords = self.__layer_config['no_method_config']['displayed_cords']
+        self.__graph_frame.plotting_frame.points_cords = self.__point_cords[self.__used_cords]
         if self.__polygon_cords_tuples is not None:
             if self.__graph_frame is not None:
                 tmp1 = self.__polygon_cords_tuples[0][self.__used_cords].transpose()
@@ -1208,21 +1206,16 @@ class NeuralLayer:
     def apply_PCA(self):
         pca_config = self.__layer_config['PCA_config']
         print(pca_config)
-        used_pcs_list = pca_config['actual_used_components']
+        used_pcs_list = pca_config['displayed_cords']
         points_cords = self.__point_cords.transpose()
         scaled_data = preprocessing.StandardScaler().fit_transform(points_cords)
         pca = PCA()
         pca.fit(scaled_data)
         pca_data = pca.transform(scaled_data)
         pcs_components_transpose = pca_data.transpose()
-        for i, used_pcs in enumerate(used_pcs_list):
-            self.__displayed_cords[i] = pcs_components_transpose[used_pcs]
-
+        self.__graph_frame.plotting_frame.points_cords = pcs_components_transpose[used_pcs_list]
         self.__layer_config['PCA_config']['percentage_variance'] = pd.Series(np.round(pca.explained_variance_ratio_ * 100, decimals=1), index=self.__pc_labels)
-        #print(self.__layer_config['PCA_config']['percentage_variance'])
         self.__layer_config['PCA_config']['largest_infulence'] = pd.Series(pca.components_[0], index=self.__neuron_labels)
-        #print(self.__layer_config['PCA_config']['largest_infulence'])
-
 
     def clear(self):
         '''
@@ -1265,7 +1258,7 @@ class NeuralLayer:
         self.__graph_frame = GraphFrame(self, self.__layer_wrapper, *args, **kwargs)
         self.__graph_frame.pack()
 
-        self.__graph_frame.initialize(self, self.__layer_name, self.__displayed_cords, self.__points_config,
+        self.__graph_frame.initialize(self, self.__layer_name, self.__point_cords[self.__used_cords], self.__points_config,
                                       self.__layer_weights, self.__layer_biases)
         self.__graph_frame.pack(fill='both', expand=True)
 
