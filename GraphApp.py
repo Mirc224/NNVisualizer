@@ -9,6 +9,7 @@ from AdditionalComponents import *
 from sklearn import preprocessing
 from PlottingAndControlComponents import *
 from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
 LARGE_FONT = ('Verdana', 12)
 np.seterr(divide='ignore', invalid='ignore')
 
@@ -746,6 +747,7 @@ class OptionsFrame(tk.LabelFrame):
         for i in range(len(t_sne_parameter_id_list)):
             t_sne_parameter = RewritableLabel(self.__tSNE_parameter_choose_frame, t_sne_parameter_id_list[i],
                                               self.validate_t_sne_entry, t_sne_parameter_label[i], '-')
+            t_sne_parameter.set_entry_width(3)
             t_sne_parameter.pack(fill='x')
             self.__tSNE_parameters_dict[t_sne_parameter_id_list[i]] = t_sne_parameter
 
@@ -811,43 +813,43 @@ class OptionsFrame(tk.LabelFrame):
             self.__show_polygon_check.grid(row=3, column=0, sticky='w')
 
     def initialize_dimension_reduction_options(self):
-            self.__dim_reduction_options_frame.pack(side='bottom', fill='x')
-            self.set_actual_method_lable(self.__currently_used_method)
-            config_selected_method = self.__changed_config['config_selected_method']
+        self.__dim_reduction_options_frame.pack(side='bottom', fill='x')
+        self.set_actual_method_lable(self.__currently_used_method)
+        config_selected_method = self.__changed_config['config_selected_method']
 
-            self.__no_method_radio.deselect()
-            self.__PCA_method_radio.deselect()
-            self.__tSNE_method_radio.deselect()
+        self.__no_method_radio.deselect()
+        self.__PCA_method_radio.deselect()
+        self.__tSNE_method_radio.deselect()
 
-            if config_selected_method == 'No method':
-                self.__no_method_radio.select()
-            elif config_selected_method == 'PCA':
-                self.__PCA_method_radio.select()
-            elif config_selected_method == 't-SNE':
-                self.__tSNE_method_radio.select()
+        if config_selected_method == 'No method':
+            self.__no_method_radio.select()
+        elif config_selected_method == 'PCA':
+            self.__PCA_method_radio.select()
+        elif config_selected_method == 't-SNE':
+            self.__tSNE_method_radio.select()
 
-            if self.__currently_used_method == 'PCA':
-                self.update_PCA_information()
+        if self.__currently_used_method == 'PCA':
+            self.update_PCA_information()
 
-            self.on_method_change()
+        self.initialize_t_sne_parameters()
+        self.on_method_change()
 
     def initialize_with_layer_config(self, neural_layer, config):
         self.__active_layer = neural_layer
         self.__changed_config = config
         self.update_selected_config()
 
-    # def apply_PCA_options_if_changed(self):
-    #     changed = False
-    #     if self.__changed_config is not None:
-    #         pca_config = self.__changed_config['PCA_config']
-    #         options_used_components_list = pca_config['options_used_components']
-    #         actual_used_components_list = pca_config['displayed_cords']
-    #         possible_components = len(options_used_components_list)
-    #         for component_number in range(possible_components):
-    #             if actual_used_components_list[component_number] != options_used_components_list[component_number]:
-    #                 actual_used_components_list[component_number] = options_used_components_list[component_number]
-    #                 changed = True
-    #     return changed
+    def initialize_t_sne_parameters(self):
+        t_sne_config = self.__changed_config['t_SNE_config']
+        actual_used_config = t_sne_config['used_config']
+        options_config = t_sne_config['options_config']
+        for key in self.__tSNE_parameters_dict:
+            rewritable_label = self.__tSNE_parameters_dict[key]
+            rewritable_label.set_variable_label(options_config[key])
+            if actual_used_config[key] == options_config[key]:
+                rewritable_label.set_mark_changed(False)
+            else:
+                rewritable_label.set_mark_changed(True)
 
     def update_selected_config(self):
         if self.__active_layer is not None and self.__changed_config is not None:
@@ -870,7 +872,7 @@ class OptionsFrame(tk.LabelFrame):
             pc_labels = variance_series.index
             for i, label in enumerate(pc_labels):
                 self.__PC_variance_explanation_list_box.insert(i, '{}: {:.2f}%'.format(label, round(variance_series[label], 2)))
-            loading_scores = self.__changed_config['PCA_config']['largest_infulence']
+            loading_scores = self.__changed_config['PCA_config']['largest_influence']
             sorted_loading_scores = loading_scores.abs().sort_values(ascending=False)
             self.__PC_loading_scores_list_box.delete(0, tk.END)
             sorted_indexes = sorted_loading_scores.index.values
@@ -890,6 +892,10 @@ class OptionsFrame(tk.LabelFrame):
         if self.__active_layer is not None:
             method = self.__method_var.get()
             need_recalculation = False
+            if method == 't-SNE':
+                need_recalculation = self.apply_t_SNE_options_if_changed()
+
+
             if method != self.__changed_config['used_method']:
                 need_recalculation = True
                 self.__changed_config['used_method'] = self.__currently_used_method = method
@@ -907,6 +913,31 @@ class OptionsFrame(tk.LabelFrame):
                     self.__PCA_computation_info_frame.pack_forget()
                 self.set_actual_method_lable(method)
             self.set_cords_entries_according_chosen_method()
+
+    def apply_t_SNE_options_if_changed(self):
+        chagned = False
+        if self.__changed_config is not None:
+            t_sne_config = self.__changed_config['t_SNE_config']
+            used_config = t_sne_config['used_config']
+            options_config = t_sne_config['options_config']
+            for key in options_config:
+                if used_config[key] != options_config[key]:
+                    chagned = True
+                    used_config[key] = options_config[key]
+        return chagned
+
+    # def apply_PCA_options_if_changed(self):
+    #     changed = False
+    #     if self.__changed_config is not None:
+    #         pca_config = self.__changed_config['PCA_config']
+    #         options_used_components_list = pca_config['options_used_components']
+    #         actual_used_components_list = pca_config['displayed_cords']
+    #         possible_components = len(options_used_components_list)
+    #         for component_number in range(possible_components):
+    #             if actual_used_components_list[component_number] != options_used_components_list[component_number]:
+    #                 actual_used_components_list[component_number] = options_used_components_list[component_number]
+    #                 changed = True
+    #     return changed
 
     def hide_all(self):
         self.__layer_options_frame.pack_forget()
@@ -977,7 +1008,23 @@ class OptionsFrame(tk.LabelFrame):
             self.__active_layer.use_config()
 
     def validate_t_sne_entry(self, id, value):
-        pass
+        try:
+            test_tuple = self.__changed_config['t_SNE_config']['parameter_borders'][id]
+            if not (test_tuple[0] <= test_tuple[1](value) <= test_tuple[2]):
+                self.__tSNE_parameters_dict[id].set_entry_text('err')
+                return False
+            parameter_label = self.__tSNE_parameters_dict[id]
+            parameter_label.set_variable_label(value)
+            parameter_label.show_variable_label()
+            self.__changed_config['t_SNE_config']['options_config'][id] = test_tuple[1](value)
+            if self.__changed_config['t_SNE_config']['options_config'][id] == self.__changed_config['t_SNE_config']['used_config'][id]:
+                parameter_label.set_mark_changed(False)
+            else:
+                parameter_label.set_mark_changed(True)
+            return True
+        except ValueError:
+            self.__tSNE_parameters_dict[id].set_entry_text('err')
+            return False
 
     def validate_cord_entry(self, id, value):
         try:
@@ -1027,6 +1074,11 @@ class OptionsFrame(tk.LabelFrame):
             possible_cords = self.__changed_config['max_visible_dim']
             displayed_cords = self.__changed_config['PCA_config']['displayed_cords'].copy()
             displayed_cords = np.array(displayed_cords) + 1
+        elif self.__currently_used_method == 't-SNE':
+            entry_names = ['t-SNE X:', 't-SNE Y:', 't-SNE Z:']
+            cords_label_text = 'Possible t-SNE components: 0-{}'.format(self.__changed_config['max_visible_dim'] - 1)
+            possible_cords = self.__changed_config['max_visible_dim']
+            displayed_cords = self.__changed_config['t_SNE_config']['displayed_cords'].copy()
 
         self.set_cords_entries(entry_names, cords_label_text, displayed_cords, possible_cords)
 
@@ -1100,6 +1152,7 @@ class NeuralLayer:
         self.__axis_labels = []
         self.__neuron_labels = []
         self.__pc_labels = []
+        self.__used_t_sne_components = []
 
         self.__used_PCA_components = []
 
@@ -1150,6 +1203,7 @@ class NeuralLayer:
 
         for i in range(number_of_cords):
             self.__used_cords.append(i)
+            self.__used_t_sne_components.append(i)
             self.__used_PCA_components.append(i)
             self.__axis_labels.append(axis_default_names[i])
 
@@ -1167,10 +1221,18 @@ class NeuralLayer:
         self.__layer_config['used_method'] = 'No method'
         self.__layer_config['config_selected_method'] = 'No method'
         no_method_config = {'displayed_cords': self.__used_cords}
-        pca_config = {'displayed_cords': self.__used_PCA_components, 'percentage_variance': None, 'largest_infulence': None,
+        pca_config = {'displayed_cords': self.__used_PCA_components, 'percentage_variance': None, 'largest_influence': None,
                       'options_used_components': self.__used_PCA_components.copy()}
-        t_sne_config = {}
 
+        number_t_sne_components = min(self.__number_of_dimension, 3)
+        used_config = {'n_components': number_t_sne_components, 'perplexity': 30, 'early_exaggeration': 12.0,
+                       'learning_rate': 200, 'n_iter': 1000}
+        parameter_borders = {'n_components': (1, int, number_t_sne_components), 'perplexity': (0, float, float("inf")),
+                             'early_exaggeration': (0, float, 1000),
+                             'learning_rate': (float("-inf"), float, float("inf")),
+                             'n_iter': (250, int, float("inf"))}
+        t_sne_config = {'used_config': used_config, 'options_config': used_config.copy(),
+                        'parameter_borders': parameter_borders, 'displayed_cords': self.__used_t_sne_components}
         self.__layer_config['no_method_config'] = no_method_config
         self.__layer_config['PCA_config'] = pca_config
         self.__layer_config['t_SNE_config'] = t_sne_config
@@ -1192,6 +1254,8 @@ class NeuralLayer:
                 self.apply_no_method()
             elif used_method == 'PCA':
                 self.apply_PCA()
+            elif used_method == "t-SNE":
+                self.apply_t_SNE()
         self.__graph_frame.apply_changes()
 
     def apply_no_method(self):
@@ -1215,7 +1279,16 @@ class NeuralLayer:
         pcs_components_transpose = pca_data.transpose()
         self.__graph_frame.plotting_frame.points_cords = pcs_components_transpose[used_pcs_list]
         self.__layer_config['PCA_config']['percentage_variance'] = pd.Series(np.round(pca.explained_variance_ratio_ * 100, decimals=1), index=self.__pc_labels)
-        self.__layer_config['PCA_config']['largest_infulence'] = pd.Series(pca.components_[0], index=self.__neuron_labels)
+        self.__layer_config['PCA_config']['largest_influence'] = pd.Series(pca.components_[0], index=self.__neuron_labels)
+
+    def apply_t_SNE(self):
+        t_sne_config = self.__layer_config['t_SNE_config']
+        used_t_sne_components = t_sne_config['displayed_cords']
+        points_cords = self.__point_cords.transpose()
+        tsne = TSNE(**t_sne_config['used_config'])
+        transformed_cords = tsne.fit_transform(points_cords).transpose()
+        print(transformed_cords)
+        self.__graph_frame.plotting_frame.points_cords = transformed_cords[used_t_sne_components]
 
     def clear(self):
         '''
@@ -1447,5 +1520,8 @@ class GraphFrame(tk.LabelFrame):
 
 app = VisualizationApp()
 app.mainloop()
-
+# tmp = [int, str, float]
+# print(tmp[0](1))
+# print(tmp[1](1))
+# print(tmp[2](1))
 
