@@ -251,9 +251,10 @@ class RewritableLabel(tk.Frame):
     def set_mark_changed(self, value):
         self.__mark_changed = value
         if self.__mark_changed:
-            self.__name_label.configure(text=self.__name_variable[:-1] + "*")
+            self.__name_label.configure(text=self.__name_variable[:-1] + "*", foreground='red')
         else:
-            self.__name_label.configure(text=self.__name_variable)
+            self.__name_label.configure(text=self.__name_variable, foreground='black')
+
 
 class ClickableSlider(tk.LabelFrame):
     def __init__(self, parent, slider_id, hide_command, *args, **kwargs):

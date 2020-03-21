@@ -11,11 +11,6 @@ import numpy as np
 
 BASIC_POINT_COLOUR = '#04B2D9'
 
-# First predict [[0.66361856 0.         1.1509359 ]]
-# [[4.74]]
-# [[6.4784    3.0335999 3.0809999]]
-# [[0.66361856 0.         1.1509359 ]]
-
 class PlotingFrame:
     def __init__(self, parent, graph_frame, *args, **kwargs):
         '''
@@ -55,8 +50,10 @@ class PlotingFrame:
 
         self.__points_config = None
         self.__points_colour = None
+        self.__used_colour = None
         self.__points_label = None
         self.__active_points_label = None
+        self.__different_points_colour = None
 
         self.__graph_container = tk.LabelFrame(self.__plot_wrapper_frame, relief=tk.FLAT)
 
@@ -85,19 +82,26 @@ class PlotingFrame:
 
     def initialize(self, displayed_cords, points_config: dict, layer_name: str):
         self.__change_in_progress = False
-        self.__cords = displayed_cords
+        if len(displayed_cords) != 0:
+            self.__cords = displayed_cords
         self.__graph_container.pack(side=tk.TOP)
         self.__graph_title = layer_name
         self.__points_config = points_config
-        self.__points_colour = self.__points_config['colour']
+        self.__used_colour = self.__points_config['default_colour']
+        self.__points_colour = []
+        self.__different_points_colour = self.__points_config['different_points_color']
         self.__points_label = self.__points_config['label']
         self.__active_points_label = self.__points_config['active_labels']
         self.set_graph_dimension(len(displayed_cords))
 
+    def set_point_color(self):
+        self.__points_colour = self.__used_colour.copy()
+        for point, colour in self.__different_points_colour:
+            self.__points_colour[point] = colour
+
     def on_mouse_double_click(self, event):
         if event.dblclick and event.button == 1:
-            for i in range(len(self.__points_colour)):
-                self.__points_colour[i] = BASIC_POINT_COLOUR
+            self.__different_points_colour.clear()
             self.__active_points_label.clear()
 
             nearest_x = 3
@@ -108,10 +112,13 @@ class PlotingFrame:
             if len(self.__cords) > 1:
                 Y_point_cords = self.__cords[1]
             else:
-                Y_point_cords = [0 for _ in range(number_of_points)]
+                Y_point_cords = np.zeros_like(self.__cords[0])
 
             if self.__draw_3D:
-                Z_point_cords = self.__cords[2]
+                if len(self.__cords) == 3:
+                    Z_point_cords = self.__cords[2]
+                else:
+                    Z_point_cords = np.zeros_like(self.__cords[0])
             # Rychlejsie pocita ale prehadzuje riadky, neviem to vyriesit
             for point in range(number_of_points):
                 if self.__draw_3D:
@@ -129,7 +136,7 @@ class PlotingFrame:
                         closest_point = point
 
             if closest_point != -1:
-                self.__points_colour[closest_point] = '#F25D27'
+                self.__different_points_colour.append((closest_point, '#F25D27'))
                 if len(self.__points_label) > 0:
                     self.__active_points_label.append((closest_point, self.__points_label[closest_point]))
             self.__parent_controller.require_graphs_redraw()
@@ -184,7 +191,9 @@ class PlotingFrame:
 
                     self.__axis.plot(xs, ys, linestyle='-', color='black', linewidth=1, alpha=0.5)
         x_axe_cords = self.__cords[0]
-
+        y_axe_cords = np.zeros_like(self.__cords[0])
+        z_axe_cords = np.zeros_like(self.__cords[0])
+        self.set_point_color()
         self.__axis.set_title(self.__graph_title)
         self.__axis.set_xlabel(self.__graph_labels[0])
         if len(self.__cords[0]) == len(self.__points_colour):
@@ -195,8 +204,6 @@ class PlotingFrame:
                     z_axe_cords = self.__cords[2]
                     if self.__draw_3D:
                         self.__axis.set_zlabel(self.__graph_labels[2])
-            else:
-                y_axe_cords = np.zeros_like(x_axe_cords)
 
             if self.__draw_3D:
                 self.__axis.scatter(x_axe_cords, y_axe_cords, z_axe_cords, c=self.__points_colour)
@@ -262,6 +269,12 @@ class PlotingFrame:
 
     def pack(self, *args, **kwargs):
         self.__plot_wrapper_frame.pack(*args, **kwargs)
+
+    def set_color_label(self, new_value):
+        if new_value:
+            self.__used_colour = self.__points_config['label_colour']
+        else:
+            self.__used_colour = self.__points_config['default_colour']
 
     def __del__(self):
         print('Mazanie plotting graph')
