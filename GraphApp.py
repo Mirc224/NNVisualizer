@@ -2,6 +2,7 @@ import ntpath
 import threading
 import time
 import tkinter as tk
+from tkinter import Widget
 
 import matplotlib.colors as mcolors
 import pandas as pd
@@ -243,6 +244,7 @@ class GraphLogicLayer:
         self.__keras_model = None
         self.__active_layers = None
         self.__neural_layers = list()
+        self.__keras_layers = list()
 
         # Vlákno sledujúce zmeny, aby sa zlepšil pocit s používania - menej sekajúce ovládanie
         self.__changed_layer_q = QueueSet()
@@ -274,6 +276,7 @@ class GraphLogicLayer:
         self.__keras_model = model
         self.__number_of_layers = len(self.__keras_model.layers)
         self.__neural_layers = list()
+        self.__keras_layers = list()
         self.__active_layers = list()
 
         self.__polygon_cords = None
@@ -288,10 +291,13 @@ class GraphLogicLayer:
         self.__points_config['active_labels'] = list()
 
         # Nastavenie základnej konfiguracie.
-        for i in range(self.__number_of_layers):
-            neural_layer = NeuralLayer(self, self.__keras_model.layers[i], i)
+        i = 0
+        for layer in self.__keras_model.layers:
+            self.__keras_layers.append(layer)
+            neural_layer = NeuralLayer(self, layer, i)
             neural_layer.initialize(self.__points_config)
             self.__neural_layers.append(neural_layer)
+            i += 1
 
         self.__main_graph_frame.initialize(self.__neural_layers, self.__active_layers)
 
@@ -373,7 +379,7 @@ class GraphLogicLayer:
             return input_points
         else:
             intermediate_layer_mode = keras.Model(inputs=self.__keras_model.input,
-                                                  outputs=self.__keras_model.layers[layer_number - 1].output)
+                                                  outputs=self.__keras_layers[layer_number - 1].output)
             return intermediate_layer_mode.predict(input_points)
 
     def set_points_for_layer(self, layer_number):
@@ -436,7 +442,7 @@ class GraphLogicLayer:
 
     def set_layer_weights_and_biases(self, layer_number, layer_weights, layer_biases):
         # Nastvaenie hodnôt a biasu priamo do keras modelu.
-        self.__keras_model.layers[layer_number].set_weights([np.array(layer_weights), np.array(layer_biases)])
+        self.__keras_layers[layer_number].set_weights([np.array(layer_weights), np.array(layer_biases)])
 
     def signal_change_on_layer(self, layer_number):
         """
@@ -636,12 +642,12 @@ class MainGraphFrame(tk.LabelFrame):
         # Options bar pre jednotlivé vrstvy.
         self.__options_frame = OptionsFrame(self.__input_panned, self.__logic_layer, border=0, highlightthickness=0)
         self.__input_panned.add(self.__options_frame)
-        self.__graph_panned = ttk.PanedWindow(self.__input_panned)
-        self.__input_panned.add(self.__graph_panned)
+        # self.__graph_panned = tk.PanedWindow(self.__input_panned)
+        # self.__input_panned.add(self.__graph_panned)
 
         # Posuvné okno, v ktorom sú zobrazované grafy zodpovedajúce jednotlivým vrstvám.
-        self.__graph_area_frame = tk.LabelFrame(self.__graph_panned, relief='sunken', border=0, highlightthickness=0)
-        self.__graph_panned.add(self.__graph_area_frame)
+        self.__graph_area_frame = tk.LabelFrame(self.__input_panned, relief='sunken', border=0, highlightthickness=0)
+        self.__input_panned.add(self.__graph_area_frame)
         self.__scroll_frame = ScrollableWindow(self.__graph_area_frame, 'horizontal', border=0, highlightthickness=0)
         self.__scroll_frame.pack(side='right', fill=tk.BOTH, expand=True)
 
@@ -950,6 +956,8 @@ class OptionsFrame(tk.LabelFrame):
         """
         self.__changed_config = None
         self.__active_layer = None
+        self.__PC_explanation_lb.delete(0, tk.END)
+        self.__PC_scores_lb.delete(0, tk.END)
         self.hide_all()
 
     def initialize_label_options(self):
@@ -1086,13 +1094,13 @@ class OptionsFrame(tk.LabelFrame):
         """
         variance_series = self.__changed_config['PCA_config']['percentage_variance']
         if variance_series is not None:
-            self.__PC_scores_lb.delete(0, tk.END)
+            self.__PC_explanation_lb.delete(0, tk.END)
             pc_labels = variance_series.index
             for i, label in enumerate(pc_labels):
                 self.__PC_explanation_lb.insert(i, '{}: {:.2f}%'.format(label, round(variance_series[label], 2)))
             loading_scores = self.__changed_config['PCA_config']['largest_influence']
 
-            self.__PC_explanation_lb.delete(0, tk.END)
+            self.__PC_scores_lb.delete(0, tk.END)
             # Zoradenie významností jednotlivých neurónov pri PCA
             sorted_loading_scores = loading_scores.abs().sort_values(ascending=False)
             sorted_indexes = sorted_loading_scores.index.values
@@ -1152,8 +1160,8 @@ class OptionsFrame(tk.LabelFrame):
                 if used_config[key] != options_config[key]:
                     changed = True
                     used_config[key] = options_config[key]
-            t_sne_config['displayed_cords'] = list(range(used_config['n_components']))
             if changed:
+                t_sne_config['displayed_cords'] = list(range(used_config['n_components']))
                 self.set_entries_not_marked(self.__tSNE_parameters_dict.values())
         return changed
 
@@ -1264,7 +1272,7 @@ class OptionsFrame(tk.LabelFrame):
                 new_value = int(value)
             elif self.__currently_used_method == 'PCA':
                 bottom_border = 1
-                top_border = self.__changed_config['number_of_dimensions'] + 1
+                top_border = min(self.__changed_config['number_of_dimensions'], self.__changed_config['number_of_samples']) + 1
                 changed_cords = self.__changed_config['PCA_config']['displayed_cords']
                 new_value = int(value) - 1
             elif self.__currently_used_method == 't-SNE':
@@ -1305,8 +1313,13 @@ class OptionsFrame(tk.LabelFrame):
             possible_cords = self.__changed_config['max_visible_dim']
         elif self.__currently_used_method == 'PCA':
             entry_names = ['PC axis X:', 'PC axis Y:', 'PC axis Z:']
-            cords_label_text = 'Possible PCs: 1-{}'.format(self.__changed_config['number_of_dimensions'])
-            possible_cords = self.__changed_config['max_visible_dim']
+            number_of_pcs = min(self.__changed_config['number_of_dimensions'],
+                                                                   self.__changed_config['number_of_samples'])
+            if number_of_pcs == 0:
+                cords_label_text = 'No possible PCs:'
+            else:
+                cords_label_text = 'Possible PCs: 1-{}'.format(number_of_pcs)
+            possible_cords = min(number_of_pcs, self.__changed_config['max_visible_dim'])
             displayed_cords = self.__changed_config['PCA_config']['displayed_cords'].copy()
             displayed_cords = np.array(displayed_cords) + 1
         elif self.__currently_used_method == 't-SNE':
@@ -1360,8 +1373,12 @@ class NeuralLayer:
         self.__number_of_dimension = keras_layer.input_shape[1]
         self.__layer_number = layer_number
 
-        self.__layer_weights = keras_layer.get_weights()[0]
-        self.__layer_biases = keras_layer.get_weights()[1]
+        if len(keras_layer.get_weights()) != 0:
+            self.__layer_weights = keras_layer.get_weights()[0]
+            self.__layer_biases = keras_layer.get_weights()[1]
+        else:
+            self.__layer_weights = None
+            self.__layer_biases = None
 
         self.__layer_options_container = None
         self.__options_button = None
@@ -1450,6 +1467,7 @@ class NeuralLayer:
         self.__layer_config['locked_view'] = False
         self.__layer_config['cords_changed'] = False
         self.__layer_config['color_labels'] = False
+        self.__layer_config['number_of_samples'] = 0
         if number_of_cords >= 3:
             self.__layer_config['draw_3d'] = True
         else:
@@ -1459,6 +1477,7 @@ class NeuralLayer:
 
         no_method_config = {'displayed_cords': used_no_method_cords}
         pca_config = {'displayed_cords': used_PCA_components,
+                      'n_possible_pc': 0,
                       'percentage_variance': None,
                       'largest_influence': None,
                       'options_used_components': used_PCA_components.copy()}
@@ -1491,6 +1510,7 @@ class NeuralLayer:
         '''
         # Je potrbné podľa navolených zobrazovaných súradníc priradiť z prepočítaných jednotlivé súradnice do súradníc
         # zobrazovaných.
+        self.set_used_cords()
         if self.__has_points:
             used_method = self.__layer_config['used_method']
             if used_method == 'No method':
@@ -1507,6 +1527,15 @@ class NeuralLayer:
         if used_method == 'No method':
             self.set_displayed_cords_for_polygon()
 
+    def set_used_cords(self):
+        used_method = self.__layer_config['used_method']
+        if used_method == 'No method':
+            self.__used_cords = self.__layer_config['no_method_config']['displayed_cords']
+        elif used_method == 'PCA':
+            self.__used_cords = self.__layer_config['PCA_config']['displayed_cords']
+        elif used_method == 't-SNE':
+            self.__used_cords = self.__layer_config['t_SNE_config']['displayed_cords']
+
     def set_displayed_cords_for_polygon(self):
         if self.__polygon_cords_tuples is not None:
             if self.__graph_frame is not None:
@@ -1518,12 +1547,12 @@ class NeuralLayer:
         self.__graph_frame.plotting_frame.points_cords = self.__points_method_cords[self.__used_cords]
 
     def apply_no_method(self):
-        self.__used_cords = self.__layer_config['no_method_config']['displayed_cords']
+        #self.__used_cords = self.__layer_config['no_method_config']['displayed_cords']
         self.__points_method_cords = self.__point_cords[self.__used_cords]
 
     def apply_PCA(self):
         pca_config = self.__layer_config['PCA_config']
-        self.__used_cords = pca_config['displayed_cords']
+        #self.__used_cords = pca_config['displayed_cords']
         points_cords = self.__point_cords.transpose()
         scaled_data = preprocessing.StandardScaler().fit_transform(points_cords)
         pca = PCA()
@@ -1531,13 +1560,15 @@ class NeuralLayer:
         pca_data = pca.transform(scaled_data)
         pcs_components_transpose = pca_data.transpose()
         self.__points_method_cords = pcs_components_transpose
-        self.__layer_config['PCA_config']['percentage_variance'] = pd.Series(
-            np.round(pca.explained_variance_ratio_ * 100, decimals=1), index=self.__pc_labels)
-        self.__layer_config['PCA_config']['largest_influence'] = pd.Series(pca.components_[0], index=self.__neuron_labels)
+        number_of_pcs_indexes = min(self.__number_of_dimension, pca.explained_variance_ratio_.size)
+        if number_of_pcs_indexes > 0:
+            self.__layer_config['PCA_config']['percentage_variance'] = pd.Series(
+                np.round(pca.explained_variance_ratio_ * 100, decimals=1), index=self.__pc_labels[:number_of_pcs_indexes])
+            self.__layer_config['PCA_config']['largest_influence'] = pd.Series(pca.components_[0], index=self.__neuron_labels)
 
     def apply_t_SNE(self):
         t_sne_config = self.__layer_config['t_SNE_config']
-        self.__used_cords = t_sne_config['displayed_cords']
+        #self.__used_cords = t_sne_config['displayed_cords']
         points_cords = self.__point_cords.transpose()
         number_of_components = t_sne_config['used_config']['n_components']
         tsne = TSNE(**t_sne_config['used_config'])
@@ -1555,7 +1586,7 @@ class NeuralLayer:
             self.__graph_frame.clear()
             self.__layer_options_container.destroy()
             self.__options_button.destroy()
-            self.__layer_wrapper.destroy()
+            self.__layer_wrapper.clear()
             self.__hide_button.destroy()
             self.__layer_options_container = None
             self.__options_button = None
@@ -1570,9 +1601,10 @@ class NeuralLayer:
         if self.__visible:
             self.clear()
 
-        self.__layer_wrapper = tk.LabelFrame(parent)
+        # self.__layer_wrapper = tk.LabelFrame(parent)
+        self.__layer_wrapper = ResizableWindow(parent, width=412, relief='sunken')
 
-        self.__layer_options_container = tk.Frame(self.__layer_wrapper)
+        self.__layer_options_container = tk.Frame(self.__layer_wrapper.Frame)
         self.__layer_options_container.pack(side='top', fill='x')
 
         self.__options_button = ttk.Button(self.__layer_options_container,
@@ -1583,7 +1615,7 @@ class NeuralLayer:
                                         command=lambda: hide_command(self.__layer_number), text='Hide')
         self.__hide_button.pack(side='right')
 
-        self.__graph_frame = GraphFrame(self, self.__layer_wrapper, *args, **kwargs)
+        self.__graph_frame = GraphFrame(self.__layer_wrapper.Frame, self, *args, **kwargs)
         self.__graph_frame.pack()
 
         self.__graph_frame.initialize(self, self.__layer_name, self.__point_cords[self.__used_cords], self.__points_config,
@@ -1617,6 +1649,7 @@ class NeuralLayer:
                 self.__layer_config['cords_changed'] = False
                 self.__layer_config['apply_changes'] = False
             elif self.__layer_config['cords_changed']:
+                self.set_used_cords()
                 self.set_points_for_graph()
             self.__graph_frame.apply_config(self.__layer_config)
 
@@ -1651,6 +1684,7 @@ class NeuralLayer:
     @points_cords.setter
     def point_cords(self, new_cords):
         self.__point_cords = new_cords
+        self.__layer_config['number_of_samples'] = len(new_cords.transpose())
         if self.__point_cords.size == 0:
             self.__has_points = False
         else:
@@ -1703,7 +1737,7 @@ class NeuralLayer:
 
 
 class GraphFrame(tk.LabelFrame):
-    def __init__(self, neural_layer: NeuralLayer, parent, *args, **kwargs):
+    def __init__(self,  parent, neural_layer: NeuralLayer, *args, **kwargs):
         '''
         Popis
         --------
@@ -1722,7 +1756,7 @@ class GraphFrame(tk.LabelFrame):
         tk.LabelFrame.__init__(self, parent, *args, **kwargs)
         self.__neural_layer = neural_layer
 
-        self.__graph = PlotingFrame(self, self)
+        self.__graph = PlotingFrame(self, self, height=420)
         self.__weight_controller = LayerWeightControllerFrame(self, self)
 
     def initialize(self, neural_layer: int, layer_name: str, point_cords: list, points_config: dict,
@@ -1731,8 +1765,8 @@ class GraphFrame(tk.LabelFrame):
         self.__graph.initialize(point_cords, points_config, layer_name)
         self.__weight_controller.initialize(layer_weights, layer_bias)
 
-        self.__graph.pack(side=tk.TOP)
-        self.__weight_controller.pack(side=tk.TOP, fill='both', expand=True)
+        self.__graph.pack(side=tk.TOP, fill='both', expand=True)
+        self.__weight_controller.pack(side=tk.BOTTOM, fill='both', expand=True)
 
     def redraw_graph(self):
         self.__graph.update_graph()
@@ -1783,8 +1817,6 @@ class GraphFrame(tk.LabelFrame):
 
 app = VisualizationApp()
 app.mainloop()
-# tmp = [int, str, float]
-# print(tmp[0](1))
-# print(tmp[1](1))
-# print(tmp[2](1))
+
+
 

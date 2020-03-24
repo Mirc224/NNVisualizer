@@ -36,8 +36,8 @@ class PlotingFrame:
         :var self.__ani: animácia pre prekresľovanie grafu pri zmenách. Najjedoduchší spôsob pre interaktívne a
                          dynamické grafy
         '''
-        self.__plot_wrapper_frame = tk.Frame(parent, *args, **kwargs)
-        self.__plot_wrapper_frame.pack()
+        self.__plot_wrapper_frame = ResizableWindow(parent, 'bottom', *args, **kwargs)
+        self.__plot_wrapper_frame.pack(fill='both', expand=True)
         self.__cords = [[], [], []]
         self.__line_cords_tuples = None
 
@@ -55,7 +55,8 @@ class PlotingFrame:
         self.__active_points_label = None
         self.__different_points_colour = None
 
-        self.__graph_container = tk.LabelFrame(self.__plot_wrapper_frame, relief=tk.FLAT)
+        self.__graph_container = tk.LabelFrame(self.__plot_wrapper_frame.Frame, relief=tk.FLAT)
+        self.__graph_container.pack(fill='both', expand=True)
 
         self.__figure = Figure(figsize=(4, 4), dpi=100)
         self.__canvas = FigureCanvasTkAgg(self.__figure, self.__graph_container)
@@ -162,6 +163,7 @@ class PlotingFrame:
             if self.__ani is not None:
                 self.__ani.event_source.start()
 
+
     def redraw_graph(self):
         if self.__locked_view:
             tmpX = self.__axis.get_xlim()
@@ -252,11 +254,12 @@ class PlotingFrame:
         self.__ani.event_source.stop()
         self.__toolbar.destroy()
         self.__canvas.get_tk_widget().destroy()
-        self.__plot_wrapper_frame.destroy()
         self.__figure.delaxes(self.__axis)
         self.__graph_container.destroy()
+        self.__plot_wrapper_frame.clear()
         self.__figure.clf()
         self.__axis.cla()
+        self.__plot_wrapper_frame = None
         self.__parent_controller = None
         self.__graph_container = None
         self.__graph_labels = None
@@ -362,12 +365,14 @@ class LayerWeightControllerFrame:
         self.__scrollable_window.pack(side='bottom', fill='both', expand=True)
         self.__add_slider_list = ComboboxAddRemoveFrame(self.__scrollable_window.Frame, height=58)
         self.__add_slider_list.pack(side='bottom', fill='x', expand=True)
+        self.__disable_update = False
 
     def initialize(self, layer_weights: list, layer_bias: list):
         for weight_slider in self.__active_slider_dict.values():
             weight_slider.pack_forget()
             weight_slider.destroy()
 
+        self.__disable_update = False
         self.__possible_number_of_sliders = 0
         self.__slider_dict = {}
         self.__active_slider_dict = {}
@@ -434,7 +439,8 @@ class LayerWeightControllerFrame:
         self.addSlider_visibility_test()
 
     def on_slider_change(self, value):
-        self.__controller.controller_signal()
+        if not self.__disable_update:
+            self.__controller.controller_signal()
 
     def add_slider(self, slider_name: str):
         if slider_name not in self.__active_slider_dict.keys():
@@ -446,6 +452,7 @@ class LayerWeightControllerFrame:
             self.__add_slider_list.hide_item(slider_name)
 
     def handle_combobox_input(self, item: tuple):
+        self.__disable_update = True
         if item[0] >= 0:
             self.add_slider(item[1])
         else:
@@ -454,6 +461,7 @@ class LayerWeightControllerFrame:
             list_of_remaining = list_of_remaining[1:].copy()
             for name in list_of_remaining:
                 self.add_slider(name)
+        self.__disable_update = False
 
     def clear(self):
         print('Cistime controller')

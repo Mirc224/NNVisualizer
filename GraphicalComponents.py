@@ -2,6 +2,7 @@ import math
 import tkinter as tk
 from tkinter import ttk
 
+
 class ScrollableWindow(tk.LabelFrame):
     def __init__(self, parent, orientation, *args, **kwargs):
         tk.LabelFrame.__init__(self, parent, *args, **kwargs)
@@ -59,14 +60,66 @@ class ScrollableWindow(tk.LabelFrame):
         return self.__inner_frame
 
 
+class ResizableWindow:
+    def __init__(self, parent, possition='top', *args, **kwargs):
+        self.__wrapper = tk.LabelFrame(parent, *args, **kwargs)
+        self.__wrapper.pack_propagate(0)
+        self.__upper_bar = tk.Frame(self.__wrapper)
+        if possition == 'top':
+            self.__upper_bar.pack(side=tk.TOP, fill='x')
+            self.__dragger = tk.Frame(self.__upper_bar, width=5, height=5, bg='black')
+        else:
+            self.__upper_bar.pack(side=tk.BOTTOM, fill='x')
+            self.__dragger = tk.Frame(self.__upper_bar, width=5, height=5, bg='black')
+        self.__dragger.pack(side='right')
+        self.__dragger._drag_start_x = 0
+        self.__dragger._drag_start_y = 0
+        self.__dragger.bind("<Button-1>", self.on_drag_start)
+        # self.__dragger.bind("<Motion>", self.on_motion)
+        self.__dragger.bind('<ButtonRelease-1>', self.on_drag_end)
+
+    def on_drag_start(self, event):
+        widget = event.widget
+        widget._drag_start_x = event.x
+        widget._drag_start_y = event.y
+
+    def on_drag_end(self, event):
+        widget = event.widget
+        delta_x = event.x - widget._drag_start_x
+        delta_y = event.y - widget._drag_start_y
+        new_width = delta_x + self.__wrapper.winfo_width()
+        new_height = delta_y + self.__wrapper.winfo_height()
+        new_width = max(new_width, 100)
+        new_height = max(new_height, 100)
+        self.__wrapper.configure(width=new_width, height=new_height)
+
+    def pack(self, *args, **kwargs):
+        self.__wrapper.pack(*args, **kwargs)
+
+    def clear(self):
+        print('cistim resizable')
+        self.__wrapper.destroy()
+        self.__upper_bar.destroy()
+        self.__dragger.destroy()
+        self.__upper_bar = None
+        self.__dragger = None
+
+    @property
+    def Frame(self):
+        return self.__wrapper
+
+    def __del__(self):
+        print('mazem resizable')
+
+
 class ComboboxAddRemoveFrame(tk.LabelFrame):
     def __init__(self, parent, *args, **kwargs):
         tk.LabelFrame.__init__(self, parent, *args, **kwargs)
-        
+
         self.__default_text = ''
         self.__read_only = False
         self.__next_special_ID = None
-        
+
         self.__all_values = {}
         self.__already_selected = []
         self.__ordered_values = []
@@ -419,6 +472,7 @@ class ModifiedClickableSlider(ClickableSlider):
         if super().validate_entry(event):
             if self.__weight_list is not None:
                 self.__weight_list[self.__index] = float(super().get_value())
+
     def clear(self):
         self.__weight_list = None
         self.__index = None
